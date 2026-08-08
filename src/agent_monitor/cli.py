@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
-import logging
-import signal
 
 from . import paths
 
 
 def _run_daemon() -> int:
+    import asyncio
+    import logging
+    import signal
+
     from .config import load_pad_config
     from .daemon import Daemon
     from .pad import DeepDeckPad
@@ -35,14 +36,17 @@ def _run_daemon() -> int:
 
     try:
         asyncio.run(_main())
-    except RuntimeError as exc:
-        # e.g. another daemon already owns the socket — exit cleanly, non-zero
+    except (RuntimeError, OSError) as exc:
+        # e.g. another daemon already owns the socket, or the runtime dir
+        # isn't usable — exit cleanly, non-zero, instead of a traceback.
         logging.error("%s", exc)
         return 1
     return 0
 
 
 async def _test_pattern_async() -> int:
+    import asyncio
+
     from .config import load_pad_config
     from .pad import DeepDeckPad
     from .render import NUM_KEY_LEDS
@@ -59,6 +63,7 @@ async def _test_pattern_async() -> int:
         task.cancel()
         return 1
     print("Chase: one green LED walks across all keys (check the order!)")
+    # Full brightness on purpose — a visibility aid, not the production BRIGHTNESS scaling.
     for i in range(NUM_KEY_LEDS):
         colors = [0] * (NUM_KEY_LEDS * 3)
         colors[i * 3 + 1] = 255
@@ -92,5 +97,13 @@ def main(argv: list[str] | None = None) -> int:
         from .statusview import run_status
         return run_status(args.watch)
     if args.cmd == "test-pattern":
+        import asyncio
+
+        from .statusview import daemon_running
+
+        if daemon_running():
+            print("Stop the daemon first — it is pushing to the pad too: "
+                  "systemctl --user stop agent-monitor")
+            return 1
         return asyncio.run(_test_pattern_async())
     return 2

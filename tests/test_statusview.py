@@ -1,4 +1,4 @@
-from agent_monitor.statusview import format_duration, render_status
+from agent_monitor.statusview import format_duration, read_state, render_status
 
 
 def _state():
@@ -43,3 +43,24 @@ def test_format_duration():
     assert format_duration(5) == "5s"
     assert format_duration(65) == "1m5s"
     assert format_duration(3725) == "1h02m"
+
+
+def test_terminal_rendering_emits_ansi_colors():
+    out = render_status(_state(), now=100.0, daemon_up=True, force_terminal=True)
+    assert "\x1b[" in out
+
+
+def test_bracketed_project_name_renders_verbatim():
+    state = {"updated": 1.0, "sessions": [
+        {"session_id": "a", "cwd": "/home/aaron/code/[archive]",
+         "pid": 1, "status": "busy", "slot": 0, "since": 0.0},
+    ]}
+    out = render_status(state, now=1.0, daemon_up=True)
+    assert "[archive]" in out
+
+
+def test_read_state_rejects_non_dict(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from agent_monitor import paths
+    paths.state_path().write_text("42")
+    assert read_state() is None

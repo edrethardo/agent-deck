@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import socket
+import sys
 import time
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from . import paths
@@ -39,13 +42,17 @@ def daemon_running() -> bool:
 
 def read_state() -> dict | None:
     try:
-        return json.loads(paths.state_path().read_text())
+        data = json.loads(paths.state_path().read_text())
     except (OSError, json.JSONDecodeError):
         return None
+    return data if isinstance(data, dict) else None
 
 
-def render_status(state: dict | None, now: float, daemon_up: bool) -> str:
-    console = Console(file=io.StringIO(), force_terminal=False, width=80)
+def render_status(state: dict | None, now: float, daemon_up: bool,
+                  *, force_terminal: bool = False, width: int | None = 80) -> str:
+    if width is None:
+        width = shutil.get_terminal_size().columns
+    console = Console(file=io.StringIO(), force_terminal=force_terminal, width=width)
     if not daemon_up:
         console.print("[red]⚠ daemon is not running[/red] — start it with: "
                       "systemctl --user start agent-monitor")
@@ -60,25 +67,29 @@ def render_status(state: dict | None, now: float, daemon_up: bool) -> str:
     table.add_column("Status")
     table.add_column("For", justify="right")
     for sess in sessions:
-        label, style = STATUS_LABEL.get(sess["status"], (sess["status"], ""))
-        key = "—" if sess["slot"] is None else str(sess["slot"] + 1)
+        label, style = STATUS_LABEL.get(sess.get("status"), (str(sess.get("status")), ""))
+        slot = sess.get("slot")
+        key = "—" if slot is None else str(slot + 1)
         table.add_row(
             key,
-            project_name(sess["cwd"]),
+            escape(project_name(sess.get("cwd", ""))),
             f"[{style}]{label}[/{style}]" if style else label,
-            format_duration(now - sess["since"]),
+            format_duration(now - sess.get("since", now)),
         )
     console.print(table)
     return console.file.getvalue()
 
 
 def run_status(watch: bool) -> int:
+    force = sys.stdout.isatty()
     if not watch:
-        print(render_status(read_state(), time.time(), daemon_running()), end="")
+        print(render_status(read_state(), time.time(), daemon_running(),
+                            force_terminal=force, width=None), end="")
         return 0
     try:
         while True:
-            out = render_status(read_state(), time.time(), daemon_running())
+            out = render_status(read_state(), time.time(), daemon_running(),
+                                force_terminal=force, width=None)
             print("\033[2J\033[H" + out, end="", flush=True)
             time.sleep(1)
     except KeyboardInterrupt:
