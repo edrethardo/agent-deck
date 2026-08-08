@@ -28,7 +28,7 @@ def load_pad_config(path: Path) -> PadConfig | None:
             host=str(pad["host"]),
             api_key=str(pad.get("api_key", "")),
             port=int(pad.get("port", 6053)),
-            reconnect_delay=float(pad.get("reconnect_delay", 5.0)),
+            reconnect_delay=max(0.5, float(pad.get("reconnect_delay", 5.0))),
         )
     except (ValueError, TypeError):
         return None

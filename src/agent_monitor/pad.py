@@ -13,7 +13,6 @@ _LOGGER = logging.getLogger(__name__)
 SERVICE_NAME = "set_state"
 SERVICE_ARGS = {"colors", "lines"}
 MAX_RECONNECT_DELAY = 60.0
-DISCONNECT_TIMEOUT = 2.0
 
 
 class DeepDeckPad:
@@ -38,24 +37,33 @@ class DeepDeckPad:
         self._connected = asyncio.Event()
         self._last: tuple[list[int], list[str]] | None = None
 
+    def _make_on_stop(self, client, stopped: asyncio.Event):
+        async def _on_stop(expected_disconnect: bool) -> None:
+            if self._client is client:
+                # This callback belongs to the live connection: stop pushing
+                # to it immediately; run() observes `stopped` and reconnects.
+                self._connected.clear()
+                self._client = None
+                self._service = None
+            # A callback from an already-abandoned connection only sets its
+            # own (stale) event — it must never touch the live connection.
+            stopped.set()
+        return _on_stop
+
     async def run(self) -> None:
         delay = self._cfg.reconnect_delay
         failures = 0
         while True:
             stopped = asyncio.Event()
 
-            async def _on_stop(expected_disconnect: bool) -> None:
-                # Stop pushing to the dead connection immediately; run() will
-                # observe `stopped` and reconnect.
-                self._connected.clear()
-                self._client = None
-                self._service = None
-                stopped.set()
-
             client = None
             try:
                 client = self._factory()
-                await client.connect(login=True, on_stop=_on_stop, log_errors=False)
+                await client.connect(
+                    login=True,
+                    on_stop=self._make_on_stop(client, stopped),
+                    log_errors=False,
+                )
                 _, services = await client.list_entities_services()
                 service = next((s for s in services if s.name == SERVICE_NAME), None)
                 if service is None or {a.name for a in getattr(service, "args", [])} != SERVICE_ARGS:
@@ -82,7 +90,7 @@ class DeepDeckPad:
                 self._service = None
                 if client is not None:
                     try:
-                        await asyncio.wait_for(client.disconnect(), DISCONNECT_TIMEOUT)
+                        await client.disconnect(force=True)
                     except Exception:
                         pass
             await asyncio.sleep(delay)

@@ -32,7 +32,7 @@ class FakeClient:
         assert service.name == "set_state"
         self.calls.append(data)
 
-    async def disconnect(self):
+    async def disconnect(self, force=False):
         self.disconnected = True
 
 
@@ -164,3 +164,18 @@ async def test_cancel_stops_loop_and_disconnects(fakes):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert created[0].disconnected is True
+
+
+async def test_stale_on_stop_does_not_tear_down_new_connection(fakes):
+    created, factory = fakes
+    pad = DeepDeckPad(_cfg(), client_factory=factory)
+    task = asyncio.create_task(pad.run())
+    assert await pad.wait_connected(1)
+    stale = created[0].on_stop
+    await stale(False)        # connection 0 dies for real
+    await asyncio.sleep(0.1)  # pad reconnects on client 1
+    assert pad._client is created[1]
+    await stale(True)         # late duplicate from the dead connection
+    assert pad._client is created[1]
+    assert pad._connected.is_set()
+    task.cancel()

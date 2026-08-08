@@ -45,3 +45,9 @@ def test_malformed_numeric_values_disable_pad(tmp_path):
     p = tmp_path / "config.toml"
     p.write_text('[pad]\nenabled = true\nhost = "10.0.0.5"\nport = "abc"\n')
     assert load_pad_config(p) is None
+
+
+def test_reconnect_delay_has_a_floor(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[pad]\nenabled = true\nhost = "h"\nreconnect_delay = 0\n')
+    assert load_pad_config(p).reconnect_delay == 0.5
