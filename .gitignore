@@ -6,3 +6,4 @@ dist/
 .esphome/
 firmware/secrets.yaml
 firmware/.esphome/
+firmware/.gitignore
