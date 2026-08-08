@@ -137,8 +137,9 @@ light:
 
 matrix_keypad:
   id: keypad
-  # Electrically symmetric matrix (no diodes): rows/columns swapped vs. the
-  # stock firmware so the scanner never actively drives strapping pin GPIO12.
+  # Stock scan is ACTIVE-HIGH: drive GPIO16/15/14/13, read GPIO0/4/5/12 with
+  # pulldowns (has_pulldowns) — same current direction as the stock firmware,
+  # so the key diodes conduct.
   rows:
     - pin: GPIO16
     - pin: GPIO15
@@ -154,6 +155,7 @@ matrix_keypad:
   # THIS string only — plain "ABCDEFGHIJKLMNOP" is the un-transposed alternative to try first.
   keys: "AEIMBFJNCGKODHLP"
   debounce_time: 20
+  has_pulldowns: true
   on_key:
     then:
       - lambda: |-
