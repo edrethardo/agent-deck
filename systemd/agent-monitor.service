@@ -1,0 +1,11 @@
+[Unit]
+Description=Agent Monitor — Claude session status on DeepDeck
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/agent-monitor daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
