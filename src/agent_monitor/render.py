@@ -15,7 +15,7 @@ COLORS: dict[Status, tuple[int, int, int]] = {
     Status.AVAILABLE: (0, 255, 0),
     Status.BUSY: (255, 160, 0),
     Status.WAITING: (255, 0, 0),
-    Status.UNKNOWN: (217, 119, 87),  # Claude orange #D97757
+    Status.UNKNOWN: (255, 80, 0),  # saturated orange — muted terracotta reads white on LEDs  # Claude orange #D97757
 }
 STATUS_CHAR: dict[Status, str] = {
     Status.AVAILABLE: "+",
@@ -68,11 +68,6 @@ def key_names(sessions: list[Session]) -> list[str]:
 
 
 def flash_flags(sessions: list[Session]) -> list[int]:
-    """1 per key whose LED should pulse (UNKNOWN sessions), else 0."""
-    out = [0] * NUM_KEY_LEDS
-    for sess in sessions:
-        if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
-            continue
-        if sess.status is Status.UNKNOWN:
-            out[KEY_LEDS[sess.slot]] = 1
-    return out
+    """All zeros — pulsing was tried and disliked; the protocol slot remains
+    so the firmware's flash capability can be re-enabled without a reflash."""
+    return [0] * NUM_KEY_LEDS

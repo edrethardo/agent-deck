@@ -49,20 +49,17 @@ def test_out_of_range_slot_is_skipped():
     assert oled_lines([_sess(16)]) == []
 
 
-def test_unknown_session_lights_claude_orange_with_question_mark():
+def test_unknown_session_lights_saturated_orange_with_question_mark():
     colors = led_colors([_sess(0, Status.UNKNOWN)])
-    assert colors[0:3] == [int(217 * BRIGHTNESS), int(119 * BRIGHTNESS), int(87 * BRIGHTNESS)]
+    assert colors[0:3] == [int(255 * BRIGHTNESS), int(80 * BRIGHTNESS), 0]
     (line,) = oled_lines([_sess(0, Status.UNKNOWN)])
     assert line == " 1 myproj       ?"
 
 
-def test_flash_flags_mark_unknown_slots():
-    sessions = [_sess(0, Status.UNKNOWN), _sess(1, Status.BUSY), _sess(None, Status.UNKNOWN, sid="c")]
+def test_flash_flags_are_all_zero():
+    sessions = [_sess(0, Status.UNKNOWN), _sess(1, Status.BUSY)]
     flags = flash_flags(sessions)
-    assert flags[0] == 1
-    assert flags[1] == 0
-    assert sum(flags) == 1
-    assert len(flags) == 16
+    assert flags == [0] * 16
 
 
 def test_key_names_maps_full_names_by_slot():

@@ -96,7 +96,8 @@ light:
           name: session_status
           update_interval: 33ms
           lambda: |-
-            // Keep the pulse math identical in both effects — they must stay in sync.
+            // Pulse machinery kept: the daemon currently sends all-zero flash
+            // flags (animation disliked), but can re-enable it without a reflash.
             uint32_t phase = millis() % 1200;
             float mod = phase < 600 ? phase / 600.0f : (1200 - phase) / 600.0f;
             mod = 0.15f + 0.85f * mod;
@@ -124,17 +125,13 @@ light:
     effects:
       - addressable_lambda:
           name: claude_pulse
-          update_interval: 33ms
+          update_interval: 1s
           lambda: |-
-            // Keep the pulse math identical in both effects — they must stay in sync.
-            uint32_t phase = millis() % 1200;
-            float mod = phase < 600 ? phase / 600.0f : (1200 - phase) / 600.0f;
-            mod = 0.15f + 0.85f * mod;
-            // Claude orange #D97757 at 40% brightness, breathing
+            // Static saturated orange glow — muted terracotta reads white on
+            // LEDs, and the breathing animation was disliked. Kept name for
+            // on_boot compatibility.
             for (int i = 0; i < it.size(); i++) {
-              it[i] = Color((uint8_t) (217 * 0.4f * mod),
-                            (uint8_t) (119 * 0.4f * mod),
-                            (uint8_t) (87 * 0.4f * mod));
+              it[i] = Color((uint8_t) (255 * 0.25f), (uint8_t) (80 * 0.25f), 0);
             }
 
 matrix_keypad:
