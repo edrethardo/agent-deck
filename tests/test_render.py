@@ -34,3 +34,16 @@ def test_oled_line_format():
 def test_oled_truncates_to_eight_lines():
     sessions = [_sess(i, sid=f"s{i}") for i in range(10)]
     assert len(oled_lines(sessions)) == 8
+
+
+def test_busy_session_lights_orange_with_tilde():
+    colors = led_colors([_sess(1, Status.BUSY)])
+    assert colors[3:6] == [int(255 * BRIGHTNESS), int(160 * BRIGHTNESS), 0]
+    (line,) = oled_lines([_sess(1, Status.BUSY)])
+    assert line == " 2 myproj       ~"
+
+
+def test_out_of_range_slot_is_skipped():
+    assert led_colors([_sess(16)]) == [0] * (NUM_KEY_LEDS * 3)
+    assert led_colors([_sess(-1)]) == [0] * (NUM_KEY_LEDS * 3)
+    assert oled_lines([_sess(16)]) == []

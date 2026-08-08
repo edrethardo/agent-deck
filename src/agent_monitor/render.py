@@ -26,7 +26,7 @@ STATUS_CHAR: dict[Status, str] = {
 def led_colors(sessions: list[Session]) -> list[int]:
     out = [0] * (NUM_KEY_LEDS * 3)
     for sess in sessions:
-        if sess.slot is None:
+        if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
             continue
         led = KEY_LEDS[sess.slot]
         r, g, b = COLORS[sess.status]
@@ -45,7 +45,7 @@ def project_name(cwd: str) -> str:
 def oled_lines(sessions: list[Session]) -> list[str]:
     lines = []
     for sess in sessions:
-        if sess.slot is None:
+        if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
             continue
         name = project_name(sess.cwd)[:12]
         lines.append(f"{sess.slot + 1:>2} {name:<12} {STATUS_CHAR[sess.status]}")
