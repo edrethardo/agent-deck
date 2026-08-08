@@ -1,6 +1,7 @@
 import io
 import json
 import socket
+import time
 
 from agent_monitor import hook, paths
 
@@ -61,3 +62,18 @@ def test_hook_with_garbage_stdin_exits_zero(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     _fake_stdin(monkeypatch, "not json")
     assert hook.main() == 0
+
+
+def test_hook_never_blocks_on_stdin(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(hook, "TOTAL_TIMEOUT", 1)
+
+    class BlockingStdin:
+        def read(self):
+            time.sleep(30)
+            return ""
+
+    monkeypatch.setattr("sys.stdin", BlockingStdin())
+    start = time.monotonic()
+    assert hook.main() == 0
+    assert time.monotonic() - start < 5

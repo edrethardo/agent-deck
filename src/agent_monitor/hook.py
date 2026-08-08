@@ -5,16 +5,24 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 import sys
 
 from . import paths
 
 SEND_TIMEOUT = 0.5
+TOTAL_TIMEOUT = 3  # hard cap for the whole invocation, including the stdin read
+
+
+def _timed_out(signum, frame):
+    raise TimeoutError
 
 
 def main() -> int:
     try:
+        signal.signal(signal.SIGALRM, _timed_out)
+        signal.alarm(TOTAL_TIMEOUT)
         data = json.loads(sys.stdin.read())
         payload = {
             "event": data.get("hook_event_name"),
@@ -29,4 +37,6 @@ def main() -> int:
             sock.sendall(json.dumps(payload).encode() + b"\n")
     except Exception:
         pass
+    finally:
+        signal.alarm(0)
     return 0
