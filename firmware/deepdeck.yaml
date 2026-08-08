@@ -28,8 +28,8 @@ api:
   reboot_timeout: 0s
   encryption:
     key: !secret api_key
-  services:
-    - service: set_state
+  actions:
+    - action: set_state
       variables:
         colors: int[]
         lines: string[]
@@ -65,6 +65,7 @@ light:
     chipset: SK6812
     rgb_order: GRB
     default_transition_length: 0s
+    gamma_correct: 0
     effects:
       - addressable_lambda:
           name: session_status
@@ -84,6 +85,7 @@ light:
 i2c:
   sda: GPIO21
   scl: GPIO22
+  frequency: 400kHz
 
 font:
   - file: "gfonts://Roboto Mono"
@@ -96,6 +98,9 @@ display:
     address: 0x3C
     update_interval: 500ms
     lambda: |-
+      if (id(oled_lines).empty()) {
+        it.print(0, 0, id(font8), "deepdeck: waiting for daemon");
+      }
       for (size_t i = 0; i < id(oled_lines).size() && i < 8; i++) {
-        it.print(0, (int) (i * 8), id(font8), id(oled_lines)[i].c_str());
+        it.print(0, (int) (i * 8) - 3, id(font8), id(oled_lines)[i].c_str());
       }
