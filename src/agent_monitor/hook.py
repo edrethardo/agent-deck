@@ -10,6 +10,7 @@ import socket
 import sys
 
 from . import paths
+from .scan import claude_ancestor_pid
 
 SEND_TIMEOUT = 0.5
 TOTAL_TIMEOUT = 3  # hard cap for the whole invocation, including the stdin read
@@ -28,7 +29,7 @@ def main() -> int:
             "event": data.get("hook_event_name"),
             "session_id": data.get("session_id"),
             "cwd": data.get("cwd", ""),
-            "pid": os.getppid(),  # parent = the Claude process
+            "pid": claude_ancestor_pid(os.getppid()),  # nearest claude ancestor — the wrapper parent may be short-lived
             "message": data.get("message"),
         }
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:

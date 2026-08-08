@@ -13,6 +13,7 @@ def _run_daemon() -> int:
     from .config import load_pad_config
     from .daemon import Daemon
     from .pad import DeepDeckPad
+    from .scan import claude_processes
     from .state import SessionRegistry
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -21,7 +22,8 @@ def _run_daemon() -> int:
     if pad is None:
         logging.info("no pad configured (%s) — running without hardware", paths.config_path())
     try:
-        daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path())
+        daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path(),
+                        scan_fn=claude_processes)
 
         async def _main() -> None:
             # systemd stops with SIGTERM: cancel the daemon task so run()'s

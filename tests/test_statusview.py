@@ -64,3 +64,11 @@ def test_read_state_rejects_non_dict(monkeypatch, tmp_path):
     from agent_monitor import paths
     paths.state_path().write_text("42")
     assert read_state() is None
+
+
+def test_unknown_status_label():
+    state = {"updated": 1.0, "sessions": [
+        {"session_id": "p", "cwd": "/x/scanned", "pid": 9,
+         "status": "unknown", "slot": 0, "since": 0.0}]}
+    out = render_status(state, now=1.0, daemon_up=True)
+    assert "unknown" in out

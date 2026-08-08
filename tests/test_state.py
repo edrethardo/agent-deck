@@ -119,3 +119,27 @@ def test_promote_overflow_orders_by_since():
     slots = {s.session_id: s.slot for s in reg.sessions()}
     assert slots["early"] == 0
     assert slots["late"] == 1
+
+
+def test_add_scanned_creates_unknown_session():
+    reg = SessionRegistry()
+    assert reg.add_scanned(777, "/proj/scanned", 1.0) is True
+    (s,) = reg.sessions()
+    assert (s.session_id, s.status, s.slot, s.pid) == ("proc-777", Status.UNKNOWN, 0, 777)
+
+
+def test_add_scanned_skips_known_pid():
+    reg = SessionRegistry()
+    _start(reg, "real", pid=777)
+    assert reg.add_scanned(777, "/proj/x", 2.0) is False
+    assert reg.add_scanned(777, "/proj/x", 2.0) is False
+
+
+def test_real_event_takes_over_scanned_slot():
+    reg = SessionRegistry()
+    reg.add_scanned(777, "/proj/x", 1.0)
+    reg.add_scanned(888, "/proj/y", 1.0)
+    reg.apply_event("SessionStart", "real-id", "/proj/x", 777, None, 2.0)
+    assert reg.by_id("proc-777") is None
+    assert reg.by_id("real-id").slot == 0
+    assert reg.by_id("proc-888").slot == 1

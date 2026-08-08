@@ -8,6 +8,7 @@ class Status(str, Enum):
     AVAILABLE = "available"  # green
     BUSY = "busy"            # yellow
     WAITING = "waiting"      # red
+    UNKNOWN = "unknown"      # blue — discovered by process scan, no hook events
 
 
 @dataclass

@@ -49,6 +49,13 @@ def test_out_of_range_slot_is_skipped():
     assert oled_lines([_sess(16)]) == []
 
 
+def test_unknown_session_lights_blue_with_question_mark():
+    colors = led_colors([_sess(0, Status.UNKNOWN)])
+    assert colors[0:3] == [0, 0, int(255 * BRIGHTNESS)]
+    (line,) = oled_lines([_sess(0, Status.UNKNOWN)])
+    assert line == " 1 myproj       ?"
+
+
 def test_key_names_maps_full_names_by_slot():
     sessions = [
         _sess(0, cwd="/home/aaron/code/abcdefghijklmnopqrstuvwxyz123"),

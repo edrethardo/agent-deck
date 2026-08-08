@@ -18,6 +18,7 @@ STATUS_LABEL = {
     "available": ("available", "green"),
     "busy": ("working", "yellow"),
     "waiting": ("waiting for input", "red bold"),
+    "unknown": ("unknown", "blue"),
 }
 
 

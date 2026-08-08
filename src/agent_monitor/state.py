@@ -40,12 +40,13 @@ class SessionRegistry:
         sess = self._sessions.get(session_id)
         if sess is None:
             status = status_for_event(event, message, None) or Status.AVAILABLE
+            twin = self._sessions.pop(f"proc-{pid}", None) if pid else None
             self._sessions[session_id] = Session(
                 session_id=session_id,
                 cwd=cwd,
                 pid=pid,
                 status=status,
-                slot=self._free_slot(),
+                slot=twin.slot if twin is not None else self._free_slot(),
                 since=now,
             )
             return True
@@ -57,6 +58,20 @@ class SessionRegistry:
             return False
         sess.status = new
         sess.since = now
+        return True
+
+    def add_scanned(self, pid: int, cwd: str, now: float) -> bool:
+        """Register a discovered claude process unless its PID is already tracked."""
+        if any(s.pid == pid for s in self._sessions.values()):
+            return False
+        self._sessions[f"proc-{pid}"] = Session(
+            session_id=f"proc-{pid}",
+            cwd=cwd,
+            pid=pid,
+            status=Status.UNKNOWN,
+            slot=self._free_slot(),
+            since=now,
+        )
         return True
 
     def prune(self, pid_alive: Callable[[int], bool]) -> bool:

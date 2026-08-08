@@ -15,11 +15,13 @@ COLORS: dict[Status, tuple[int, int, int]] = {
     Status.AVAILABLE: (0, 255, 0),
     Status.BUSY: (255, 160, 0),
     Status.WAITING: (255, 0, 0),
+    Status.UNKNOWN: (0, 0, 255),
 }
 STATUS_CHAR: dict[Status, str] = {
     Status.AVAILABLE: "+",
     Status.BUSY: "~",
     Status.WAITING: "!",
+    Status.UNKNOWN: "?",
 }
 
 

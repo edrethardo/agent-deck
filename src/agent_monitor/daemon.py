@@ -38,6 +38,8 @@ class Daemon:
         time_fn: Callable[[], float] = time.time,
         pid_alive: Callable[[int], bool] = default_pid_alive,
         prune_interval: float = 15.0,
+        scan_fn: Callable[[], dict[int, str]] | None = None,
+        scan_interval: float = 20.0,
     ):
         self._registry = registry
         self._pad = pad
@@ -46,6 +48,8 @@ class Daemon:
         self._time_fn = time_fn
         self._pid_alive = pid_alive
         self._prune_interval = prune_interval
+        self._scan_fn = scan_fn
+        self._scan_interval = scan_interval
         self._refresh_lock = asyncio.Lock()
         self.ready = asyncio.Event()
 
@@ -67,6 +71,8 @@ class Daemon:
         tasks = [asyncio.create_task(self._prune_loop())]
         if self._pad is not None:
             tasks.append(asyncio.create_task(self._pad.run()))
+        if self._scan_fn is not None:
+            tasks.append(asyncio.create_task(self._scan_loop()))
         for task in tasks:
             task.add_done_callback(_log_if_died)
         self.ready.set()
@@ -151,6 +157,18 @@ class Daemon:
                     await self._refresh()
             except Exception:
                 _LOGGER.exception("prune tick failed")
+
+    async def _scan_loop(self) -> None:
+        while True:
+            try:
+                changed = False
+                for pid, cwd in self._scan_fn().items():
+                    changed |= self._registry.add_scanned(pid, cwd, self._time_fn())
+                if changed:
+                    await self._refresh()
+            except Exception:
+                _LOGGER.exception("scan tick failed")
+            await asyncio.sleep(self._scan_interval)
 
 
 def _log_if_died(task: asyncio.Task) -> None:
