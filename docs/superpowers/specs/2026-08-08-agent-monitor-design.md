@@ -101,6 +101,10 @@ Sessions started before the hooks were installed never fire hook events, so they
 
 Additionally the hook client walks its process ancestry to record the PID of the actual `claude` process (not an intermediate shell/wrapper), fixing sessions being wrongly pruned when the hook's immediate parent is short-lived (observed with the VS Code extension).
 
+## Claude-orange flashing (added 2026-08-09 on Aaron's request)
+
+UNKNOWN sessions render **Claude orange (#D97757) flashing** instead of solid blue: the daemon sends a fourth `set_state` array `flash: int[]` (16 flags) and the firmware's LED effect modulates flagged keys with a ~1.2 s triangle pulse (15–100 %). The two previously unused notification LEDs (own 2-LED strip on GPIO23) breathe Claude orange continuously as an ambient pulse, firmware-only. CLI label color for unknown becomes orange for consistency.
+
 ## Key-press name overlay (added 2026-08-08 on Aaron's request)
 
 Pressing a key shows that session's name on the OLED for ~3 seconds, then the list returns. Mechanics: the daemon sends a third array `names: string[]` (16 entries, full project name per slot, empty = free) with every `set_state` call; the firmware scans the 4×4 key matrix (rows GPIO 0/4/5/12, columns GPIO 16/15/14/13, from the stock firmware) and on key press displays `key N` plus the stored name (or `(free)`), refreshing the display immediately.
