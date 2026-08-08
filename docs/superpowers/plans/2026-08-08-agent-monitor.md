@@ -6,7 +6,7 @@
 
 **Architecture:** Claude Code hooks send events to a local daemon (Unix socket). The daemon keeps a session registry (status, slot 0–15, PID), renders LED colors + OLED lines from it and pushes them to the pad via the ESPHome native API; in parallel it writes `state.json` for the CLI. The pad is a dumb display (ESPHome firmware with a `set_state` service).
 
-**Tech Stack:** Python 3.12, `uv`, `aioesphomeapi`, `rich`, pytest + pytest-asyncio (`asyncio_mode=auto`), ESPHome (via `uvx`), systemd user service.
+**Tech Stack:** Python 3.14 (raised from 3.12 during review — asyncio's `serve_forever` cancellation only closes client connections since 3.14, older versions hang on shutdown), `uv`, `aioesphomeapi>=45,<46`, `rich`, pytest + pytest-asyncio (`asyncio_mode=auto`), ESPHome (via `uvx`), systemd user service.
 
 **Spec:** `docs/superpowers/specs/2026-08-08-agent-monitor-design.md`
 
@@ -1077,6 +1077,8 @@ git commit -m "feat: DeepDeckPad — ESPHome client with reconnect and full-stat
 
 ### Task 8: Daemon (`daemon.py`)
 
+> **AMENDMENTS (applied during implementation, from code review):** shutdown cancels background tasks and awaits them via `gather(..., return_exceptions=True)`; every background task gets a done-callback logging unexpected death; the prune loop survives a failing tick (log + continue); `_load_state` ignores snapshots that are valid JSON but not an object; `_handle_client` catches `ValueError` (oversized line) and wraps each `handle_line` in log-and-continue; `run()` refuses to start if another daemon is already listening on the socket (connect probe); `_refresh` is serialized by an `asyncio.Lock`; `requires-python` raised to `>=3.14`. Task 9's `_run_daemon` must install a SIGTERM handler that cancels the daemon task so systemd stops are graceful. Tests: teardown awaits cancellation, `ready.wait` is bounded, slot preservation asserted, plus four extra tests (SessionEnd, non-object snapshot, oversized line, live-socket refusal).
+
 **Files:**
 - Create: `src/agent_monitor/daemon.py`
 - Test: `tests/test_daemon.py`
@@ -1520,6 +1522,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import signal
 
 from . import paths
 
@@ -1536,10 +1539,20 @@ def _run_daemon() -> int:
     if pad is None:
         logging.info("no pad configured (%s) — running without hardware", paths.config_path())
     daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path())
-    try:
-        asyncio.run(daemon.run())
-    except KeyboardInterrupt:
-        pass
+
+    async def _main() -> None:
+        # systemd stops with SIGTERM: cancel the daemon task so run()'s
+        # cleanup (cancel + gather of background tasks) actually executes.
+        task = asyncio.ensure_future(daemon.run())
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, task.cancel)
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_main())
     return 0
 
 
