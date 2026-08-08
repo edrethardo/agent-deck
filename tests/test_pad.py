@@ -13,6 +13,7 @@ class FakeClient:
         self.on_stop = None
         self.disconnected = False
         self.connect_error = connect_error
+        self.state_callback = None
 
     async def connect(self, login=False, on_stop=None, log_errors=True):
         if self.connect_error is not None:
@@ -20,7 +21,7 @@ class FakeClient:
         self.on_stop = on_stop
 
     async def list_entities_services(self):
-        return [], [
+        return [SimpleNamespace(object_id="focus_request", key=99)], [
             SimpleNamespace(name="other", args=[]),
             SimpleNamespace(
                 name="set_state",
@@ -39,6 +40,9 @@ class FakeClient:
 
     async def disconnect(self, force=False):
         self.disconnected = True
+
+    def subscribe_states(self, callback):
+        self.state_callback = callback
 
 
 def _cfg():
@@ -183,4 +187,33 @@ async def test_stale_on_stop_does_not_tear_down_new_connection(fakes):
     await stale(True)         # late duplicate from the dead connection
     assert pad._client is created[1]
     assert pad._connected.is_set()
+    task.cancel()
+
+
+async def test_double_press_triggers_focus_callback(fakes):
+    created, factory = fakes
+    focused = []
+    pad = DeepDeckPad(_cfg(), client_factory=factory, on_focus=focused.append)
+    task = asyncio.create_task(pad.run())
+    assert await pad.wait_connected(1)
+    await asyncio.sleep(1.1)  # past the replay-suppression window
+    created[0].state_callback(SimpleNamespace(key=99, state="3:12345"))
+    assert focused == [3]
+    created[0].state_callback(SimpleNamespace(key=99, state="3:12345"))  # duplicate
+    assert focused == [3]
+    created[0].state_callback(SimpleNamespace(key=99, state="5:12999"))
+    assert focused == [3, 5]
+    created[0].state_callback(SimpleNamespace(key=42, state="9:1"))  # other entity
+    assert focused == [3, 5]
+    task.cancel()
+
+
+async def test_replayed_state_right_after_connect_is_ignored(fakes):
+    created, factory = fakes
+    focused = []
+    pad = DeepDeckPad(_cfg(), client_factory=factory, on_focus=focused.append)
+    task = asyncio.create_task(pad.run())
+    assert await pad.wait_connected(1)
+    created[0].state_callback(SimpleNamespace(key=99, state="7:555"))  # replay on connect
+    assert focused == []
     task.cancel()

@@ -53,6 +53,18 @@ class Daemon:
         self._refresh_lock = asyncio.Lock()
         self.ready = asyncio.Event()
 
+    def focus_slot(self, slot: int) -> None:
+        """Fire-and-forget: focus the window of the session on `slot`."""
+        for sess in self._registry.sessions():
+            if sess.slot == slot:
+                asyncio.get_event_loop().create_task(self._focus(sess.cwd))
+                return
+
+    async def _focus(self, cwd: str) -> None:
+        from .focus import focus_window
+        ok = await asyncio.to_thread(focus_window, cwd)
+        _LOGGER.info("focus request for %s -> %s", cwd, "ok" if ok else "no match")
+
     async def run(self) -> None:
         if self._socket_path.exists():
             if _socket_in_use(self._socket_path):

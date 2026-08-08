@@ -78,6 +78,18 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  - id: led_brightness
+    type: float
+    restore_value: yes
+    initial_value: '1.0'
+  - id: info_text
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: info_until
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 light:
   - platform: esp32_rmt_led_strip
@@ -103,9 +115,10 @@ light:
               int base = i * 3;
               if (base + 2 < (int) id(led_colors).size()) {
                 float m = (i < (int) id(flash_flags).size() && id(flash_flags)[i]) ? mod : 1.0f;
-                it[i] = Color((uint8_t) (id(led_colors)[base] * m),
-                              (uint8_t) (id(led_colors)[base + 1] * m),
-                              (uint8_t) (id(led_colors)[base + 2] * m));
+                float f = m * id(led_brightness);
+                it[i] = Color((uint8_t) (id(led_colors)[base] * f),
+                              (uint8_t) (id(led_colors)[base + 1] * f),
+                              (uint8_t) (id(led_colors)[base + 2] * f));
               } else {
                 it[i] = Color::BLACK;
               }
@@ -146,6 +159,7 @@ interval:
           static const gpio_num_t SCAN_ROWS[4] = {GPIO_NUM_0, GPIO_NUM_4, GPIO_NUM_5, GPIO_NUM_12};
           static bool init_done = false;
           static bool last[16] = {false};
+          static uint32_t last_press_ms[16] = {0};
           if (!init_done) {
             for (int c = 0; c < 4; c++) {
               gpio_reset_pin(SCAN_COLS[c]);
@@ -171,6 +185,12 @@ interval:
                 id(overlay_slot) = slot;
                 id(overlay_until) = millis() + 3000;
                 id(oled).update();
+                uint32_t press_now = millis();
+                if (press_now - last_press_ms[slot] < 400) {
+                  ESP_LOGI("keypad", "double press -> slot %d", slot);
+                  id(focus_req).publish_state(to_string(slot) + ":" + to_string(press_now));
+                }
+                last_press_ms[slot] = press_now;
               }
               last[slot] = hit;
             }
@@ -181,6 +201,42 @@ i2c:
   sda: GPIO21
   scl: GPIO22
   frequency: 400kHz
+
+text_sensor:
+  - platform: template
+    id: focus_req
+    name: "Focus Request"
+    update_interval: never
+
+sensor:
+  - platform: rotary_encoder
+    id: knob_left
+    pin_a:
+      number: GPIO25
+      mode:
+        input: true
+        pullup: true
+    pin_b:
+      number: GPIO26
+      mode:
+        input: true
+        pullup: true
+    on_clockwise:
+      - lambda: |-
+          id(led_brightness) = std::min(1.0f, id(led_brightness) + 0.05f);
+          char buf[24];
+          snprintf(buf, sizeof(buf), "brightness %d%%", (int) (id(led_brightness) * 100));
+          id(info_text) = buf;
+          id(info_until) = millis() + 1500;
+          id(oled).update();
+    on_anticlockwise:
+      - lambda: |-
+          id(led_brightness) = std::max(0.05f, id(led_brightness) - 0.05f);
+          char buf[24];
+          snprintf(buf, sizeof(buf), "brightness %d%%", (int) (id(led_brightness) * 100));
+          id(info_text) = buf;
+          id(info_until) = millis() + 1500;
+          id(oled).update();
 
 font:
   - file: "gfonts://Roboto Mono"
@@ -210,6 +266,13 @@ display:
           return;
         }
         id(overlay_slot) = -1;  // expired: clear so a millis() wrap cannot resurrect it
+      }
+      if (id(info_until) != 0) {
+        if ((int32_t) (millis() - id(info_until)) < 0) {
+          it.print(0, 0, id(font8), id(info_text).c_str());
+          return;
+        }
+        id(info_until) = 0;
       }
       // Idle view is the kraken (Aaron's preference) — the LEDs carry the
       // status; session names appear on key press. oled_lines stays in the

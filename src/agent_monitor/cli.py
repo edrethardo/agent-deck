@@ -18,12 +18,13 @@ def _run_daemon() -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = load_pad_config(paths.config_path())
-    pad = DeepDeckPad(cfg) if cfg else None
-    if pad is None:
+    if cfg is None:
         logging.info("no pad configured (%s) — running without hardware", paths.config_path())
     try:
-        daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path(),
+        daemon = Daemon(SessionRegistry(), None, paths.state_path(), paths.socket_path(),
                         scan_fn=claude_processes)
+        pad = DeepDeckPad(cfg, on_focus=daemon.focus_slot) if cfg else None
+        daemon._pad = pad
 
         async def _main() -> None:
             # systemd stops with SIGTERM: cancel the daemon task so run()'s
