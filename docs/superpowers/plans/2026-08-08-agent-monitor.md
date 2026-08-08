@@ -1918,6 +1918,15 @@ Summary (full code provided at dispatch time): `render.key_names(sessions)` retu
 
 ---
 
+### Task 14: Process-scan discovery, UNKNOWN status, claude-ancestor PID (added on Aaron's request)
+
+**Files:**
+- Modify: `src/agent_monitor/model.py` (Status.UNKNOWN), `src/agent_monitor/render.py` (blue color, `?` char), `src/agent_monitor/statusview.py` (label), `src/agent_monitor/state.py` (`add_scanned`, PID-takeover on real event), `src/agent_monitor/scan.py` (new: /proc scanner), `src/agent_monitor/daemon.py` (scan loop), `src/agent_monitor/hook.py` (claude-ancestor PID walk), plus tests.
+
+Summary (full code at dispatch): `scan.claude_pids()` finds top-most `claude`-cmdline processes in /proc with their cwds; the daemon merges them every ~20 s as `proc-<pid>` UNKNOWN sessions (skipping PIDs already tracked); `apply_event` transfers the slot from a `proc-<pid>` session to a real session with the same PID; `hook._claude_pid()` walks up from getppid() to the nearest ancestor whose cmdline contains "claude" (fallback: getppid()). Firmware is unaffected (colors arrive pre-rendered).
+
+---
+
 ### Task 12: Hardware bring-up (manual, with Aaron)
 
 **Files:**

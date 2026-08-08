@@ -95,6 +95,12 @@ One text line per active session: `<slot> <project name> <status symbol>`. At mo
 - **Daemon tests:** against a fake pad (mocked `aioesphomeapi`), incl. reconnect-pushes-full-state.
 - **Hardware smoke test:** ESPHome config compiles; `agent-monitor test-pattern` on the real pad.
 
+## Process-scan discovery + UNKNOWN status (added 2026-08-09 on Aaron's request)
+
+Sessions started before the hooks were installed never fire hook events, so they were invisible. The daemon therefore periodically (~20 s) scans `/proc` for running `claude` processes (top-most match per process tree, deduplicated against sessions already known by PID), reads each one's cwd, and registers it as a synthetic session (`session_id = "proc-<pid>"`) with the new status 🔵 **UNKNOWN** (blue LED, `?` on the OLED, "unknown" in the CLI) — visible, but honestly marked as "status not tracked". Scanned sessions are pruned by the existing PID liveness check. If a real hook event ever arrives for the same PID, the synthetic session hands its slot to the real one.
+
+Additionally the hook client walks its process ancestry to record the PID of the actual `claude` process (not an intermediate shell/wrapper), fixing sessions being wrongly pruned when the hook's immediate parent is short-lived (observed with the VS Code extension).
+
 ## Key-press name overlay (added 2026-08-08 on Aaron's request)
 
 Pressing a key shows that session's name on the OLED for ~3 seconds, then the list returns. Mechanics: the daemon sends a third array `names: string[]` (16 entries, full project name per slot, empty = free) with every `set_state` call; the firmware scans the 4×4 key matrix (rows GPIO 0/4/5/12, columns GPIO 16/15/14/13, from the stock firmware) and on key press displays `key N` plus the stored name (or `(free)`), refreshing the display immediately.
