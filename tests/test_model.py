@@ -29,3 +29,11 @@ def test_unknown_notification_defaults_to_waiting():
 
 def test_unknown_event_returns_none():
     assert status_for_event("PreCompact", None, Status.BUSY) is None
+
+
+def test_idle_notification_case_insensitive():
+    assert status_for_event("Notification", "WAITING FOR YOUR INPUT", Status.AVAILABLE) is None
+
+
+def test_notification_without_message_defaults_to_waiting():
+    assert status_for_event("Notification", None, Status.BUSY) == Status.WAITING
