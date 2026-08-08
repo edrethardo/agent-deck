@@ -67,7 +67,7 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
     table.add_column("Status")
     table.add_column("For", justify="right")
     for sess in sessions:
-        label, style = STATUS_LABEL.get(sess.get("status"), (str(sess.get("status")), ""))
+        label, style = STATUS_LABEL.get(sess.get("status"), (escape(str(sess.get("status"))), ""))
         slot = sess.get("slot")
         key = "—" if slot is None else str(slot + 1)
         table.add_row(

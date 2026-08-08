@@ -20,21 +20,21 @@ def _run_daemon() -> int:
     pad = DeepDeckPad(cfg) if cfg else None
     if pad is None:
         logging.info("no pad configured (%s) — running without hardware", paths.config_path())
-    daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path())
-
-    async def _main() -> None:
-        # systemd stops with SIGTERM: cancel the daemon task so run()'s
-        # cleanup (cancel + gather of background tasks) actually executes.
-        task = asyncio.ensure_future(daemon.run())
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, task.cancel)
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
     try:
+        daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path())
+
+        async def _main() -> None:
+            # systemd stops with SIGTERM: cancel the daemon task so run()'s
+            # cleanup (cancel + gather of background tasks) actually executes.
+            task = asyncio.ensure_future(daemon.run())
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(sig, task.cancel)
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
         asyncio.run(_main())
     except (RuntimeError, OSError) as exc:
         # e.g. another daemon already owns the socket, or the runtime dir
