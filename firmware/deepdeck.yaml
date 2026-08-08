@@ -1,6 +1,7 @@
 # DeepDeck as a dumb status display for agent-monitor.
 # Pins from the stock firmware (DeepSea-Developments/DeepDeck.Ahuyama.fw):
-#   key LEDs: 16x WS2812/SK6812 on GPIO17 (notification LEDs GPIO23 unused)
+#   key LEDs: 16x WS2812/SK6812 on GPIO17
+#   notification LEDs: 2x WS2812/SK6812 on GPIO23 — ambient Claude-orange breathing
 #   OLED SSD1306 128x64: I2C SDA=GPIO21 SCL=GPIO22
 esphome:
   name: deepdeck
@@ -11,6 +12,10 @@ esphome:
           id: key_leds
           brightness: 100%
           effect: session_status
+      - light.turn_on:
+          id: notif_leds
+          brightness: 100%
+          effect: claude_pulse
 
 esp32:
   board: esp32dev
@@ -34,11 +39,13 @@ api:
         colors: int[]
         lines: string[]
         names: string[]
+        flash: int[]
       then:
         - lambda: |-
             id(led_colors).assign(colors.begin(), colors.end());
             id(oled_lines).assign(lines.begin(), lines.end());
             id(key_names).assign(names.begin(), names.end());
+            id(flash_flags).assign(flash.begin(), flash.end());
         - light.turn_on:
             id: key_leds
             brightness: 100%
@@ -61,6 +68,10 @@ globals:
     type: std::vector<std::string>
     restore_value: no
     initial_value: 'std::vector<std::string>(16)'
+  - id: flash_flags
+    type: std::vector<int>
+    restore_value: no
+    initial_value: 'std::vector<int>(16, 0)'
   - id: overlay_slot
     type: int
     restore_value: no
@@ -85,15 +96,43 @@ light:
           name: session_status
           update_interval: 100ms
           lambda: |-
+            uint32_t phase = millis() % 1200;
+            float mod = phase < 600 ? phase / 600.0f : (1200 - phase) / 600.0f;
+            mod = 0.15f + 0.85f * mod;
             for (int i = 0; i < it.size(); i++) {
               int base = i * 3;
               if (base + 2 < (int) id(led_colors).size()) {
-                it[i] = Color(id(led_colors)[base],
-                              id(led_colors)[base + 1],
-                              id(led_colors)[base + 2]);
+                float m = (i < (int) id(flash_flags).size() && id(flash_flags)[i]) ? mod : 1.0f;
+                it[i] = Color((uint8_t) (id(led_colors)[base] * m),
+                              (uint8_t) (id(led_colors)[base + 1] * m),
+                              (uint8_t) (id(led_colors)[base + 2] * m));
               } else {
                 it[i] = Color::BLACK;
               }
+            }
+
+  - platform: esp32_rmt_led_strip
+    id: notif_leds
+    internal: true
+    pin: GPIO23
+    num_leds: 2
+    chipset: SK6812
+    rgb_order: GRB
+    default_transition_length: 0s
+    gamma_correct: 0
+    effects:
+      - addressable_lambda:
+          name: claude_pulse
+          update_interval: 100ms
+          lambda: |-
+            uint32_t phase = millis() % 1200;
+            float mod = phase < 600 ? phase / 600.0f : (1200 - phase) / 600.0f;
+            mod = 0.15f + 0.85f * mod;
+            // Claude orange #D97757 at 40% brightness, breathing
+            for (int i = 0; i < it.size(); i++) {
+              it[i] = Color((uint8_t) (217 * 0.4f * mod),
+                            (uint8_t) (119 * 0.4f * mod),
+                            (uint8_t) (87 * 0.4f * mod));
             }
 
 matrix_keypad:

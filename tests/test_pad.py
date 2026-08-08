@@ -28,6 +28,7 @@ class FakeClient:
                     SimpleNamespace(name="colors"),
                     SimpleNamespace(name="lines"),
                     SimpleNamespace(name="names"),
+                    SimpleNamespace(name="flash"),
                 ],
             ),
         ]
@@ -61,19 +62,19 @@ async def test_show_after_connect_pushes_state(fakes):
     pad = DeepDeckPad(_cfg(), client_factory=factory)
     task = asyncio.create_task(pad.run())
     assert await pad.wait_connected(1)
-    await pad.show([1, 2, 3], ["line"], ["n"])
-    assert created[0].calls[-1] == {"colors": [1, 2, 3], "lines": ["line"], "names": ["n"]}
+    await pad.show([1, 2, 3], ["line"], ["n"], [1])
+    assert created[0].calls[-1] == {"colors": [1, 2, 3], "lines": ["line"], "names": ["n"], "flash": [1]}
     task.cancel()
 
 
 async def test_state_before_connect_is_pushed_on_connect(fakes):
     created, factory = fakes
     pad = DeepDeckPad(_cfg(), client_factory=factory)
-    await pad.show([9], ["a"], [])
+    await pad.show([9], ["a"], [], [])
     task = asyncio.create_task(pad.run())
     assert await pad.wait_connected(1)
     await asyncio.sleep(0.05)
-    assert created[0].calls == [{"colors": [9], "lines": ["a"], "names": []}]
+    assert created[0].calls == [{"colors": [9], "lines": ["a"], "names": [], "flash": []}]
     task.cancel()
 
 
@@ -82,18 +83,18 @@ async def test_reconnect_pushes_full_state_again(fakes):
     pad = DeepDeckPad(_cfg(), client_factory=factory)
     task = asyncio.create_task(pad.run())
     assert await pad.wait_connected(1)
-    await pad.show([5], ["x"], [])
+    await pad.show([5], ["x"], [], [])
     await created[0].on_stop(False)  # simulate connection loss
     await asyncio.sleep(0.1)
     assert len(created) >= 2
-    assert created[1].calls == [{"colors": [5], "lines": ["x"], "names": []}]
+    assert created[1].calls == [{"colors": [5], "lines": ["x"], "names": [], "flash": []}]
     task.cancel()
 
 
 async def test_show_without_connection_does_not_raise(fakes):
     _, factory = fakes
     pad = DeepDeckPad(_cfg(), client_factory=factory)
-    await pad.show([1], [], [])  # run() not started — must not raise
+    await pad.show([1], [], [], [])  # run() not started — must not raise
 
 
 async def test_connect_failure_then_recovery(fakes):
@@ -141,7 +142,7 @@ async def test_show_never_raises_when_push_fails(fakes):
     pad = DeepDeckPad(_cfg(), client_factory=ExplodingClient)
     task = asyncio.create_task(pad.run())
     assert await pad.wait_connected(1)
-    await pad.show([1], ["x"], [])  # must not raise
+    await pad.show([1], ["x"], [], [])  # must not raise
     task.cancel()
 
 
@@ -150,12 +151,12 @@ async def test_show_during_outage_buffers_and_reconnect_pushes_new_state(fakes):
     pad = DeepDeckPad(_cfg(), client_factory=factory)
     task = asyncio.create_task(pad.run())
     assert await pad.wait_connected(1)
-    await pad.show([1], ["old"], [])
+    await pad.show([1], ["old"], [], [])
     await created[0].on_stop(False)
-    await pad.show([2], ["new"], [])  # pad is down — must buffer, not hit the dead client
-    assert created[0].calls[-1] == {"colors": [1], "lines": ["old"], "names": []}
+    await pad.show([2], ["new"], [], [])  # pad is down — must buffer, not hit the dead client
+    assert created[0].calls[-1] == {"colors": [1], "lines": ["old"], "names": [], "flash": []}
     await asyncio.sleep(0.1)
-    assert created[1].calls[-1] == {"colors": [2], "lines": ["new"], "names": []}
+    assert created[1].calls[-1] == {"colors": [2], "lines": ["new"], "names": [], "flash": []}
     task.cancel()
 
 

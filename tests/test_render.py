@@ -1,5 +1,5 @@
 from agent_monitor.model import Session, Status
-from agent_monitor.render import BRIGHTNESS, NUM_KEY_LEDS, key_names, led_colors, oled_lines
+from agent_monitor.render import BRIGHTNESS, NUM_KEY_LEDS, flash_flags, key_names, led_colors, oled_lines
 
 
 def _sess(slot, status=Status.AVAILABLE, cwd="/home/aaron/code/myproj", sid="a"):
@@ -49,11 +49,20 @@ def test_out_of_range_slot_is_skipped():
     assert oled_lines([_sess(16)]) == []
 
 
-def test_unknown_session_lights_blue_with_question_mark():
+def test_unknown_session_lights_claude_orange_with_question_mark():
     colors = led_colors([_sess(0, Status.UNKNOWN)])
-    assert colors[0:3] == [0, 0, int(255 * BRIGHTNESS)]
+    assert colors[0:3] == [int(217 * BRIGHTNESS), int(119 * BRIGHTNESS), int(87 * BRIGHTNESS)]
     (line,) = oled_lines([_sess(0, Status.UNKNOWN)])
     assert line == " 1 myproj       ?"
+
+
+def test_flash_flags_mark_unknown_slots():
+    sessions = [_sess(0, Status.UNKNOWN), _sess(1, Status.BUSY), _sess(None, Status.UNKNOWN, sid="c")]
+    flags = flash_flags(sessions)
+    assert flags[0] == 1
+    assert flags[1] == 0
+    assert sum(flags) == 1
+    assert len(flags) == 16
 
 
 def test_key_names_maps_full_names_by_slot():

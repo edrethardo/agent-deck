@@ -11,7 +11,7 @@ from .config import PadConfig
 
 _LOGGER = logging.getLogger(__name__)
 SERVICE_NAME = "set_state"
-SERVICE_ARGS = {"colors", "lines", "names"}
+SERVICE_ARGS = {"colors", "lines", "names", "flash"}
 MAX_RECONNECT_DELAY = 60.0
 
 
@@ -35,7 +35,7 @@ class DeepDeckPad:
         self._client = None
         self._service = None
         self._connected = asyncio.Event()
-        self._last: tuple[list[int], list[str], list[str]] | None = None
+        self._last: tuple[list[int], list[str], list[str], list[int]] | None = None
 
     def _make_on_stop(self, client, stopped: asyncio.Event):
         async def _on_stop(expected_disconnect: bool) -> None:
@@ -103,8 +103,10 @@ class DeepDeckPad:
         except TimeoutError:
             return False
 
-    async def show(self, colors: list[int], lines: list[str], names: list[str]) -> None:
-        self._last = (list(colors), list(lines), list(names))
+    async def show(
+        self, colors: list[int], lines: list[str], names: list[str], flash: list[int]
+    ) -> None:
+        self._last = (list(colors), list(lines), list(names), list(flash))
         await self._push_last()
 
     async def _push_last(self) -> None:
@@ -117,6 +119,7 @@ class DeepDeckPad:
                     "colors": self._last[0],
                     "lines": self._last[1],
                     "names": self._last[2],
+                    "flash": self._last[3],
                 },
             )
             if inspect.isawaitable(result):

@@ -69,12 +69,12 @@ async def _test_pattern_async() -> int:
     for i in range(NUM_KEY_LEDS):
         colors = [0] * (NUM_KEY_LEDS * 3)
         colors[i * 3 + 1] = 255
-        await pad.show(colors, [f"Chase key {i + 1}"], [""] * NUM_KEY_LEDS)
+        await pad.show(colors, [f"Chase key {i + 1}"], [""] * NUM_KEY_LEDS, [0] * NUM_KEY_LEDS)
         await asyncio.sleep(0.3)
     for name, rgb in [("green", (0, 255, 0)), ("yellow", (255, 160, 0)),
                       ("red", (255, 0, 0)), ("off", (0, 0, 0))]:
         print(f"All keys: {name}")
-        await pad.show(list(rgb) * NUM_KEY_LEDS, [f"Test: {name}"], [""] * NUM_KEY_LEDS)
+        await pad.show(list(rgb) * NUM_KEY_LEDS, [f"Test: {name}"], [""] * NUM_KEY_LEDS, [0] * NUM_KEY_LEDS)
         await asyncio.sleep(1.0)
     task.cancel()
     return 0
