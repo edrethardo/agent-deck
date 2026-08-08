@@ -60,6 +60,11 @@ class Daemon:
                 asyncio.get_event_loop().create_task(self._focus(sess.cwd))
                 return
 
+    def move_slot(self, src: int, dst: int) -> None:
+        """Swap the sessions shown on keys src and dst (from a pad request)."""
+        if self._registry.swap_slots(src, dst):
+            asyncio.get_event_loop().create_task(self._refresh())
+
     async def _focus(self, cwd: str) -> None:
         from .focus import focus_window
         ok = await asyncio.to_thread(focus_window, cwd)

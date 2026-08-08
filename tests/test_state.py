@@ -167,3 +167,24 @@ def test_real_session_evicts_newest_scanned_when_full():
     reg.apply_event("SessionStart", "real", "/p/real", 5, None, 99.0)
     assert reg.by_id("real").slot == 15
     assert reg.by_id("proc-1015").slot is None
+
+
+def test_swap_slots_between_occupied_keys():
+    reg = SessionRegistry()
+    _start(reg, "a")
+    _start(reg, "b")
+    assert reg.swap_slots(0, 1) is True
+    assert (reg.by_id("a").slot, reg.by_id("b").slot) == (1, 0)
+
+
+def test_swap_slot_to_empty_key():
+    reg = SessionRegistry()
+    _start(reg, "a")
+    assert reg.swap_slots(0, 7) is True
+    assert reg.by_id("a").slot == 7
+
+
+def test_swap_empty_slots_is_no_change():
+    reg = SessionRegistry()
+    assert reg.swap_slots(3, 4) is False
+    assert reg.swap_slots(3, 3) is False

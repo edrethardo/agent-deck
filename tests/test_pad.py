@@ -21,7 +21,8 @@ class FakeClient:
         self.on_stop = on_stop
 
     async def list_entities_services(self):
-        return [SimpleNamespace(object_id="focus_request", key=99)], [
+        return [SimpleNamespace(object_id="focus_request", key=99),
+                SimpleNamespace(object_id="move_request", key=98)], [
             SimpleNamespace(name="other", args=[]),
             SimpleNamespace(
                 name="set_state",
@@ -216,4 +217,18 @@ async def test_replayed_state_right_after_connect_is_ignored(fakes):
     assert await pad.wait_connected(1)
     created[0].state_callback(SimpleNamespace(key=99, state="7:555"))  # replay on connect
     assert focused == []
+    task.cancel()
+
+
+async def test_move_event_triggers_move_callback(fakes):
+    created, factory = fakes
+    moves = []
+    pad = DeepDeckPad(_cfg(), client_factory=factory, on_move=lambda s, d: moves.append((s, d)))
+    task = asyncio.create_task(pad.run())
+    assert await pad.wait_connected(1)
+    await asyncio.sleep(1.1)
+    created[0].state_callback(SimpleNamespace(key=98, state="2:5:777"))
+    assert moves == [(2, 5)]
+    created[0].state_callback(SimpleNamespace(key=98, state="2:5:777"))  # duplicate
+    assert moves == [(2, 5)]
     task.cancel()

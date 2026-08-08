@@ -28,6 +28,7 @@ class DeepDeckPad:
         client_factory: Callable | None = None,
         *,
         on_focus: Callable[[int], None] | None = None,
+        on_move: Callable[[int, int], None] | None = None,
     ):
         self._cfg = config
         self._factory = client_factory or (
@@ -43,7 +44,8 @@ class DeepDeckPad:
         self._connected = asyncio.Event()
         self._last: tuple[list[int], list[str], list[str], list[int]] | None = None
         self._on_focus = on_focus
-        self._last_focus_payload: str = ""
+        self._on_move = on_move
+        self._last_payloads: dict[int, str] = {}
 
     def _make_on_stop(self, client, stopped: asyncio.Event):
         async def _on_stop(expected_disconnect: bool) -> None:
@@ -82,15 +84,18 @@ class DeepDeckPad:
                 self._service = service
                 self._client = client
                 self._connected.set()
-                if self._on_focus is not None:
-                    focus_key = next(
-                        (e.key for e in entities if getattr(e, "object_id", "") == "focus_request"),
-                        None,
-                    )
-                    if focus_key is not None:
+                if self._on_focus is not None or self._on_move is not None:
+                    keys = {}
+                    for e in entities:
+                        oid = getattr(e, "object_id", "")
+                        if oid == "focus_request":
+                            keys[e.key] = "focus"
+                        elif oid == "move_request":
+                            keys[e.key] = "move"
+                    if keys:
                         subscribed_at = self._loop_time()
                         client.subscribe_states(
-                            lambda state: self._handle_state(state, focus_key, subscribed_at)
+                            lambda state: self._handle_state(state, keys, subscribed_at)
                         )
                 delay = self._cfg.reconnect_delay
                 failures = 0
@@ -118,24 +123,30 @@ class DeepDeckPad:
     def _loop_time() -> float:
         return asyncio.get_event_loop().time()
 
-    def _handle_state(self, state, focus_key: int, subscribed_at: float) -> None:
-        if getattr(state, "key", None) != focus_key:
+    def _handle_state(self, state, keys: dict, subscribed_at: float) -> None:
+        kind = keys.get(getattr(state, "key", None))
+        if kind is None:
             return
         payload = getattr(state, "state", "")
-        if not payload or payload == self._last_focus_payload:
+        if not payload or payload == self._last_payloads.get(state.key):
             return
-        # subscribe_states replays the current state on every (re)connect;
-        # a replayed press must never refocus a window minutes later.
+        self._last_payloads[state.key] = payload
+        # subscribe_states replays current states on every (re)connect; a
+        # replayed press must never fire again minutes later.
         if self._loop_time() - subscribed_at < 1.0:
-            self._last_focus_payload = payload
             return
-        self._last_focus_payload = payload
+        parts = payload.split(":")
         try:
-            slot = int(payload.split(":", 1)[0])
+            if kind == "focus" and self._on_focus is not None:
+                slot = int(parts[0])
+                if 0 <= slot < 16:
+                    self._on_focus(slot)
+            elif kind == "move" and self._on_move is not None:
+                src, dst = int(parts[0]), int(parts[1])
+                if 0 <= src < 16 and 0 <= dst < 16:
+                    self._on_move(src, dst)
         except (ValueError, IndexError):
             return
-        if self._on_focus is not None and 0 <= slot < 16:
-            self._on_focus(slot)
 
     async def wait_connected(self, timeout: float) -> bool:
         try:

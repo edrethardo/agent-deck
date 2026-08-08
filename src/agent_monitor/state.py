@@ -75,6 +75,20 @@ class SessionRegistry:
         )
         return True
 
+    def swap_slots(self, a: int, b: int) -> bool:
+        """Swap whatever is shown on keys a and b (either may be empty)."""
+        if a == b:
+            return False
+        sess_a = next((s for s in self._sessions.values() if s.slot == a), None)
+        sess_b = next((s for s in self._sessions.values() if s.slot == b), None)
+        if sess_a is None and sess_b is None:
+            return False
+        if sess_a is not None:
+            sess_a.slot = b
+        if sess_b is not None:
+            sess_b.slot = a
+        return True
+
     def prune(self, pid_alive: Callable[[int], bool]) -> bool:
         """Remove sessions whose process is dead. True if anything changed."""
         dead = [sid for sid, s in self._sessions.items() if not pid_alive(s.pid)]

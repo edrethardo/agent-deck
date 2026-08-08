@@ -90,6 +90,14 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  - id: move_src
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: move_started
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 light:
   - platform: esp32_rmt_led_strip
@@ -116,6 +124,10 @@ light:
               if (base + 2 < (int) id(led_colors).size()) {
                 float m = (i < (int) id(flash_flags).size() && id(flash_flags)[i]) ? mod : 1.0f;
                 float f = m * id(led_brightness);
+                if (id(move_src) >= 0 && i == id(move_src)) {
+                  // slow blink on the picked-up key while awaiting the target
+                  f *= (millis() % 1000) < 500 ? 1.0f : 0.15f;
+                }
                 it[i] = Color((uint8_t) (id(led_colors)[base] * f),
                               (uint8_t) (id(led_colors)[base + 1] * f),
                               (uint8_t) (id(led_colors)[base + 2] * f));
@@ -160,6 +172,8 @@ interval:
           static bool init_done = false;
           static bool last[16] = {false};
           static uint32_t last_press_ms[16] = {0};
+          static uint32_t press_start[16] = {0};
+          static bool hold_fired[16] = {false};
           if (!init_done) {
             for (int c = 0; c < 4; c++) {
               gpio_reset_pin(SCAN_COLS[c]);
@@ -174,6 +188,12 @@ interval:
             }
             init_done = true;
           }
+          uint32_t now = millis();
+          if (id(move_src) >= 0 && (uint32_t) (now - id(move_started)) > 10000) {
+            id(move_src) = -1;  // move mode timed out
+            id(info_until) = 0;
+            id(oled).update();
+          }
           for (int c = 0; c < 4; c++) {
             gpio_set_level(SCAN_COLS[c], 1);
             delayMicroseconds(5);
@@ -181,16 +201,40 @@ interval:
               int slot = r * 4 + c;  // stock keymap order: row-major
               bool hit = gpio_get_level(SCAN_ROWS[r]);
               if (hit && !last[slot]) {
-                ESP_LOGI("keypad", "key press -> slot %d", slot);
-                id(overlay_slot) = slot;
-                id(overlay_until) = millis() + 3000;
-                id(oled).update();
-                uint32_t press_now = millis();
-                if (press_now - last_press_ms[slot] < 400) {
-                  ESP_LOGI("keypad", "double press -> slot %d", slot);
-                  id(focus_req).publish_state(to_string(slot) + ":" + to_string(press_now));
+                press_start[slot] = now;
+                hold_fired[slot] = false;
+                if (id(move_src) >= 0) {
+                  if (slot != id(move_src)) {
+                    ESP_LOGI("keypad", "move %d -> %d", id(move_src), slot);
+                    id(move_req).publish_state(
+                        to_string(id(move_src)) + ":" + to_string(slot) + ":" + to_string(now));
+                  }
+                  id(move_src) = -1;  // selected or cancelled either way
+                  id(info_until) = 0;
+                  id(oled).update();
+                } else {
+                  ESP_LOGI("keypad", "key press -> slot %d", slot);
+                  id(overlay_slot) = slot;
+                  id(overlay_until) = now + 3000;
+                  id(oled).update();
+                  if (now - last_press_ms[slot] < 400) {
+                    ESP_LOGI("keypad", "double press -> slot %d", slot);
+                    id(focus_req).publish_state(to_string(slot) + ":" + to_string(now));
+                  }
+                  last_press_ms[slot] = now;
                 }
-                last_press_ms[slot] = press_now;
+              }
+              if (hit && last[slot] && !hold_fired[slot] && id(move_src) < 0
+                  && (uint32_t) (now - press_start[slot]) >= 600) {
+                hold_fired[slot] = true;
+                id(move_src) = slot;
+                id(move_started) = now;
+                id(overlay_slot) = -1;  // move info replaces the name overlay
+                std::string name = slot < (int) id(key_names).size() ? id(key_names)[slot] : std::string();
+                id(info_text) = "move " + (name.empty() ? "key " + to_string(slot + 1) : name);
+                id(info_until) = now + 10000;
+                ESP_LOGI("keypad", "hold -> move mode from slot %d", slot);
+                id(oled).update();
               }
               last[slot] = hit;
             }
@@ -206,6 +250,10 @@ text_sensor:
   - platform: template
     id: focus_req
     name: "Focus Request"
+    update_interval: never
+  - platform: template
+    id: move_req
+    name: "Move Request"
     update_interval: never
 
 sensor:
