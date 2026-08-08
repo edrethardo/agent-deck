@@ -134,6 +134,11 @@ class Daemon:
             pid = int(data.get("pid") or 0)
         except (TypeError, ValueError):
             pid = 0
+        if event == "SessionStart":
+            # A reloaded session announces itself before the periodic prune
+            # notices its predecessor died — sweep first so the newcomer
+            # inherits the freed key instead of drifting to a new one.
+            self._registry.prune(self._pid_alive)
         changed = self._registry.apply_event(
             event=event,
             session_id=session_id,

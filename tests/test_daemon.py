@@ -188,3 +188,22 @@ async def test_scan_loop_adds_unknown_sessions(paths):
     assert sessions[0]["session_id"] == "proc-4242"
     assert sessions[0]["status"] == "unknown"
     await _stop(task)
+
+
+async def test_session_start_reclaims_dead_predecessors_key(paths):
+    state_path, sock_path = paths
+    registry = SessionRegistry()
+    registry.add_scanned(999, "/proj/x", 1.0)   # old session on slot 0
+    registry.add_scanned(500, "/proj/y", 1.0)   # neighbor on slot 1, stays alive
+    daemon = Daemon(registry, None, state_path, sock_path,
+                    time_fn=lambda: 2.0, pid_alive=lambda pid: pid != 999)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    # the reloaded session (new pid) starts before any prune tick ran
+    await _send(sock_path, {"event": "SessionStart", "session_id": "reborn",
+                            "cwd": "/proj/x", "pid": 1234})
+    sessions = {s["session_id"]: s for s in json.loads(state_path.read_text())["sessions"]}
+    assert "proc-999" not in sessions
+    assert sessions["reborn"]["slot"] == 0
+    assert sessions["proc-500"]["slot"] == 1
+    await _stop(task)
