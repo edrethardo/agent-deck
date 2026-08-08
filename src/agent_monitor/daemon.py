@@ -50,16 +50,17 @@ class Daemon:
         self.ready = asyncio.Event()
 
     async def run(self) -> None:
-        self._load_state()
-        self._registry.prune(self._pid_alive)
-        await self._refresh()
-
         if self._socket_path.exists():
             if _socket_in_use(self._socket_path):
                 raise RuntimeError(
                     f"another daemon is already listening on {self._socket_path}"
                 )
             self._socket_path.unlink()
+
+        self._load_state()
+        self._registry.prune(self._pid_alive)
+        await self._refresh()
+
         server = await asyncio.start_unix_server(
             self._handle_client, path=str(self._socket_path)
         )
