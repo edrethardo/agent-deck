@@ -1927,6 +1927,12 @@ Summary (full code at dispatch): `scan.claude_pids()` finds top-most `claude`-cm
 
 ---
 
+### Task 15: Claude-orange flashing (added on Aaron's request)
+
+`set_state` gains `flash: int[]` (16 flags; daemon sets 1 for UNKNOWN slots via `render.flash_flags`). The key-LED effect applies a 1.2 s triangle pulse (15–100 %) to flagged LEDs; UNKNOWN color becomes Claude orange (217, 119, 87). The two notification LEDs (own strip, GPIO23) breathe Claude orange continuously (`claude_pulse` effect, firmware-only). CLI unknown label switches to dark_orange. Deployment note: reflash (OTA) and daemon restart must happen back-to-back — the `set_state` arity changed, so old/new combinations freeze the pad display until both sides match.
+
+---
+
 ### Task 12: Hardware bring-up (manual, with Aaron)
 
 **Files:**
