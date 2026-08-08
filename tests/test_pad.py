@@ -19,7 +19,7 @@ class FakeClient:
     async def list_entities_services(self):
         return [], [SimpleNamespace(name="other"), SimpleNamespace(name="set_state")]
 
-    def execute_service(self, service, data):
+    async def execute_service(self, service, data):
         assert service.name == "set_state"
         self.calls.append(data)
 

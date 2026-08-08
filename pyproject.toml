@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Traffic-light status for Claude Code sessions on a DeepDeck + CLI"
 requires-python = ">=3.12"
 dependencies = [
-    "aioesphomeapi>=21",
+    "aioesphomeapi>=45,<46",
     "rich>=13",
 ]
 

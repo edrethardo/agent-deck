@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Callable
 
@@ -82,8 +83,10 @@ class DeepDeckPad:
         if self._client is None or self._service is None or self._last is None:
             return
         try:
-            self._client.execute_service(
+            result = self._client.execute_service(
                 self._service, {"colors": self._last[0], "lines": self._last[1]}
             )
+            if inspect.isawaitable(result):
+                await result
         except Exception as exc:
             _LOGGER.warning("pad push failed: %s", exc)
