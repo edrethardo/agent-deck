@@ -1944,6 +1944,7 @@ This task needs the physical DeepDeck over USB. Walk through the steps together 
 > 1. **If the board appears dead after plugging in** (no serial output at all): unplug, make sure no key is held down, and re-plug before suspecting the flash. GPIO12 (matrix, MTDI strapping pin) held high at power-on sets the flash voltage wrong and prevents boot entirely — a held key on its row/column can cause this. Property of the DeepDeck PCB, not the firmware.
 > 2. **Verify the key matrix before the daemon is ever involved:** the overlay works standalone (no WiFi/daemon needed) — press all 16 keys and confirm the OLED shows the matching `key N` / `(free)`. If the mapping is transposed or rotated, reorder ONLY the `keys:` string in `firmware/deepdeck.yaml` and reflash (OTA) — do not edit the 16 per-key values (they no longer exist).
 > 3. LED order is verified separately via `agent-monitor test-pattern` (chase); remap `KEY_LEDS` in `render.py` if needed.
+> 4. If only one notification LED lights or its color is wrong, the notif strip is RGBW — set `is_rgbw: true` on `notif_leds` (same open question as the key strip).
 
 - [ ] **Step 1: Fill in secrets**
 

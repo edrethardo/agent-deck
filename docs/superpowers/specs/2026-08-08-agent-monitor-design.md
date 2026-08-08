@@ -105,6 +105,10 @@ Additionally the hook client walks its process ancestry to record the PID of the
 
 UNKNOWN sessions render **Claude orange (#D97757) flashing** instead of solid blue: the daemon sends a fourth `set_state` array `flash: int[]` (16 flags) and the firmware's LED effect modulates flagged keys with a ~1.2 s triangle pulse (15–100 %). The two previously unused notification LEDs (own 2-LED strip on GPIO23) breathe Claude orange continuously as an ambient pulse, firmware-only. CLI label color for unknown becomes orange for consistency.
 
+## Kraken logo idle screen (added 2026-08-09 on Aaron's request)
+
+The stock DeepDeck logo (128×32 bitmap, extracted from the stock firmware into `firmware/deepdeck_logo.xbm`) is shown on the OLED at boot and whenever there are no sessions to list; the session list and the key-press overlay keep priority. Matrix note: the DeepDeck scans **active-high** (stock drives GPIO16/15/14/13, reads GPIO0/4/5/12 through the key diodes) — ESPHome needs `has_pulldowns: true`; the default active-low scan is blocked by the diodes and registers nothing.
+
 ## Key-press name overlay (added 2026-08-08 on Aaron's request)
 
 Pressing a key shows that session's name on the OLED for ~3 seconds, then the list returns. Mechanics: the daemon sends a third array `names: string[]` (16 entries, full project name per slot, empty = free) with every `set_state` call; the firmware scans the 4×4 key matrix (rows GPIO 0/4/5/12, columns GPIO 16/15/14/13, from the stock firmware) and on key press displays `key N` plus the stored name (or `(free)`), refreshing the display immediately.
