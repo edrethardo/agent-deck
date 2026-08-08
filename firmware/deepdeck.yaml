@@ -156,6 +156,7 @@ matrix_keypad:
   on_key:
     then:
       - lambda: |-
+          ESP_LOGI("keypad", "key '%c' -> slot %d", x, x - 'A');
           id(overlay_slot) = x - 'A';
           id(overlay_until) = millis() + 3000;
       - component.update: oled
@@ -194,10 +195,7 @@ display:
         }
         id(overlay_slot) = -1;  // expired: clear so a millis() wrap cannot resurrect it
       }
-      if (id(oled_lines).empty()) {
-        it.image(0, 16, id(kraken_logo));
-        return;
-      }
-      for (size_t i = 0; i < id(oled_lines).size() && i < 8; i++) {
-        it.print(0, (int) (i * 8) - 3, id(font8), id(oled_lines)[i].c_str());
-      }
+      // Idle view is the kraken (Aaron's preference) — the LEDs carry the
+      // status; session names appear on key press. oled_lines stays in the
+      // protocol should a list view ever return.
+      it.image(37, 0, id(kraken_logo));
