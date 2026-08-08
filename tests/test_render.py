@@ -1,0 +1,36 @@
+from agent_monitor.model import Session, Status
+from agent_monitor.render import BRIGHTNESS, NUM_KEY_LEDS, led_colors, oled_lines
+
+
+def _sess(slot, status=Status.AVAILABLE, cwd="/home/aaron/code/myproj", sid="a"):
+    return Session(sid, cwd, 1, status, slot, 0.0)
+
+
+def test_empty_registry_is_all_dark():
+    assert led_colors([]) == [0] * (NUM_KEY_LEDS * 3)
+    assert oled_lines([]) == []
+
+
+def test_available_session_lights_green():
+    colors = led_colors([_sess(0)])
+    assert colors[0:3] == [0, int(255 * BRIGHTNESS), 0]
+    assert colors[3:] == [0] * (NUM_KEY_LEDS * 3 - 3)
+
+
+def test_waiting_session_lights_red_on_its_slot():
+    colors = led_colors([_sess(5, Status.WAITING)])
+    assert colors[15:18] == [int(255 * BRIGHTNESS), 0, 0]
+
+
+def test_overflow_session_not_rendered():
+    assert led_colors([_sess(None)]) == [0] * (NUM_KEY_LEDS * 3)
+
+
+def test_oled_line_format():
+    (line,) = oled_lines([_sess(2, Status.WAITING)])
+    assert line == " 3 myproj       !"
+
+
+def test_oled_truncates_to_eight_lines():
+    sessions = [_sess(i, sid=f"s{i}") for i in range(10)]
+    assert len(oled_lines(sessions)) == 8
