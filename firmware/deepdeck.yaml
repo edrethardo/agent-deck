@@ -132,34 +132,50 @@ light:
               it[i] = Color((uint8_t) (255 * 0.25f), (uint8_t) (80 * 0.25f), 0);
             }
 
-matrix_keypad:
-  id: keypad
-  # Stock scan is ACTIVE-HIGH: drive GPIO16/15/14/13, read GPIO0/4/5/12 with
-  # pulldowns (has_pulldowns) — same current direction as the stock firmware,
-  # so the key diodes conduct.
-  rows:
-    - pin: GPIO16
-    - pin: GPIO15
-    - pin: GPIO14
-    - pin: GPIO13
-  columns:
-    - pin: GPIO0
-    - pin: GPIO4
-    - pin: GPIO5
-    - pin: GPIO12
-  # Scan index -> key char ('A' = slot 0 ... 'P' = slot 15), pre-transposed for the
-  # swapped rows/columns. If the bench test (Task 12) shows a wrong mapping, reorder
-  # THIS string only — plain "ABCDEFGHIJKLMNOP" is the un-transposed alternative to try first.
-  keys: "AEIMBFJNCGKODHLP"
-  debounce_time: 20
-  has_pulldowns: true
-  on_key:
+# Custom key-matrix scan replicating the stock firmware exactly (matrix.c,
+# COL2ROW): every line is INPUT_OUTPUT idling LOW; sense rows use the weakest
+# drive strength; the scanned column is driven strongly HIGH and overpowers a
+# pressed key's weak-low row. Needs no pull resistors and works with or
+# without diodes — unlike ESPHome's matrix_keypad, whose has_pulldowns mode
+# expects EXTERNAL pulldowns this PCB does not have.
+interval:
+  - interval: 25ms
     then:
       - lambda: |-
-          ESP_LOGI("keypad", "key '%c' -> slot %d", x, x - 'A');
-          id(overlay_slot) = x - 'A';
-          id(overlay_until) = millis() + 3000;
-      - component.update: oled
+          static const gpio_num_t SCAN_COLS[4] = {GPIO_NUM_16, GPIO_NUM_15, GPIO_NUM_14, GPIO_NUM_13};
+          static const gpio_num_t SCAN_ROWS[4] = {GPIO_NUM_0, GPIO_NUM_4, GPIO_NUM_5, GPIO_NUM_12};
+          static bool init_done = false;
+          static bool last[16] = {false};
+          if (!init_done) {
+            for (int c = 0; c < 4; c++) {
+              gpio_reset_pin(SCAN_COLS[c]);
+              gpio_set_direction(SCAN_COLS[c], GPIO_MODE_INPUT_OUTPUT);
+              gpio_set_level(SCAN_COLS[c], 0);
+            }
+            for (int r = 0; r < 4; r++) {
+              gpio_reset_pin(SCAN_ROWS[r]);
+              gpio_set_direction(SCAN_ROWS[r], GPIO_MODE_INPUT_OUTPUT);
+              gpio_set_drive_capability(SCAN_ROWS[r], GPIO_DRIVE_CAP_0);
+              gpio_set_level(SCAN_ROWS[r], 0);
+            }
+            init_done = true;
+          }
+          for (int c = 0; c < 4; c++) {
+            gpio_set_level(SCAN_COLS[c], 1);
+            delayMicroseconds(5);
+            for (int r = 0; r < 4; r++) {
+              int slot = r * 4 + c;  // stock keymap order: row-major
+              bool hit = gpio_get_level(SCAN_ROWS[r]);
+              if (hit && !last[slot]) {
+                ESP_LOGI("keypad", "key press -> slot %d", slot);
+                id(overlay_slot) = slot;
+                id(overlay_until) = millis() + 3000;
+                id(oled).update();
+              }
+              last[slot] = hit;
+            }
+            gpio_set_level(SCAN_COLS[c], 0);
+          }
 
 i2c:
   sda: GPIO21
