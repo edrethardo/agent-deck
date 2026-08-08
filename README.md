@@ -29,6 +29,8 @@ Without this file the daemon runs without hardware (CLI only).
     cp firmware/secrets.yaml.example firmware/secrets.yaml   # fill it in!
     uvx esphome run firmware/deepdeck.yaml                   # afterwards: OTA over WiFi
 
+The daemon and firmware move together: if a daemon update changes the set_state arguments, reflash the pad (after the first USB flash this works over WiFi: uvx esphome run firmware/deepdeck.yaml) — until then the daemon logs "pad firmware mismatch" and keeps retrying.
+
 ## Usage
 
     agent-monitor status           # table
