@@ -105,6 +105,12 @@ Additionally the hook client walks its process ancestry to record the PID of the
 
 UNKNOWN sessions render **Claude orange (#D97757) flashing** instead of solid blue: the daemon sends a fourth `set_state` array `flash: int[]` (16 flags) and the firmware's LED effect modulates flagged keys with a ~1.2 s triangle pulse (15–100 %). The two previously unused notification LEDs (own 2-LED strip on GPIO23) breathe Claude orange continuously as an ambient pulse, firmware-only. CLI label color for unknown becomes orange for consistency.
 
+## Double-press focus + brightness knob (added 2026-08-09 on Aaron's request)
+
+**Double-press** (two presses of the same key within 400 ms): the firmware publishes `"<slot>:<millis>"` to a template text sensor (`focus_req`); the daemon subscribes to states on its existing API connection, dedupes (last-payload memory plus ignoring deliveries in the first second after each subscribe, so reconnect replays never refocus), resolves slot → session cwd, and focuses the matching desktop window via `wmctrl -l` title match on the project name (best match: VS Code windows contain the folder name; run via asyncio.to_thread). Requires `wmctrl` and DISPLAY/XAUTHORITY in the systemd user environment (verified present).
+
+**Left knob** (encoder 1: A=GPIO25 B=GPIO26, internal pullups): rotates LED brightness in 5 % steps (5–100 %, `restore_value: yes` so it survives reboots), applied as a multiplier in the LED effect; while turning, the OLED shows `brightness N%` for 1.5 s (wrap-safe like the key overlay). Firmware-only. If the physical left knob turns out to be encoder 2, swap to pins 33/32.
+
 ## Kraken logo idle screen (added 2026-08-09 on Aaron's request)
 
 The stock DeepDeck logo (128×32 bitmap, extracted from the stock firmware into `firmware/deepdeck_logo.xbm`) is shown on the OLED at boot and whenever there are no sessions to list; the session list and the key-press overlay keep priority. Matrix note: the DeepDeck scans **active-high** (stock drives GPIO16/15/14/13, reads GPIO0/4/5/12 through the key diodes) — ESPHome needs `has_pulldowns: true`; the default active-low scan is blocked by the diodes and registers nothing.
