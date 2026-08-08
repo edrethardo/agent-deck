@@ -110,9 +110,10 @@ matrix_keypad:
     - pin: GPIO4
     - pin: GPIO5
     - pin: GPIO12
-  # Scan index -> key char; 'A' = slot 0 ... 'P' = slot 15. If the bench test
-  # (Task 12) shows a transposed/rotated mapping, reorder THIS string only.
-  keys: "ABCDEFGHIJKLMNOP"
+  # Scan index -> key char ('A' = slot 0 ... 'P' = slot 15), pre-transposed for the
+  # swapped rows/columns. If the bench test (Task 12) shows a wrong mapping, reorder
+  # THIS string only — plain "ABCDEFGHIJKLMNOP" is the un-transposed alternative to try first.
+  keys: "AEIMBFJNCGKODHLP"
   debounce_time: 20
   on_key:
     then:
