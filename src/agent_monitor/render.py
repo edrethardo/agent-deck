@@ -15,7 +15,7 @@ COLORS: dict[Status, tuple[int, int, int]] = {
     Status.AVAILABLE: (0, 255, 0),
     Status.BUSY: (255, 160, 0),
     Status.WAITING: (255, 0, 0),
-    Status.UNKNOWN: (255, 80, 0),  # saturated orange — muted terracotta reads white on LEDs  # Claude orange #D97757
+    Status.UNKNOWN: (0, 0, 255),  # blue — orange variants were tried and reverted  # Claude orange #D97757
 }
 STATUS_CHAR: dict[Status, str] = {
     Status.AVAILABLE: "+",

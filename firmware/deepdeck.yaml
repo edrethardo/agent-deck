@@ -12,10 +12,8 @@ esphome:
           id: key_leds
           brightness: 100%
           effect: session_status
-      - light.turn_on:
-          id: notif_leds
-          brightness: 100%
-          effect: claude_pulse
+      # notif_leds deliberately stay off (glow variants were tried and reverted);
+      # the light + effect remain defined for easy re-enabling.
 
 esp32:
   board: esp32dev
