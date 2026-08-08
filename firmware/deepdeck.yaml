@@ -99,7 +99,7 @@ display:
     update_interval: 500ms
     lambda: |-
       if (id(oled_lines).empty()) {
-        it.print(0, 0, id(font8), "deepdeck: waiting for daemon");
+        it.print(0, 0, id(font8), "waiting for daemon");
       }
       for (size_t i = 0; i < id(oled_lines).size() && i < 8; i++) {
         it.print(0, (int) (i * 8) - 3, id(font8), id(oled_lines)[i].c_str());
