@@ -8,6 +8,7 @@ def _runtime_dir() -> Path:
     base = Path(os.environ.get("XDG_RUNTIME_DIR", f"/tmp/agent-monitor-{os.getuid()}"))
     d = base / "agent-monitor"
     d.mkdir(parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
     return d
 
 
