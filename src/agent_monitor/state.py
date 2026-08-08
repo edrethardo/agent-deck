@@ -90,6 +90,7 @@ class SessionRegistry:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SessionRegistry":
+        """Load a snapshot, repairing any corrupt slot data it contains."""
         reg = cls()
         for entry in data.get("sessions", []):
             try:
@@ -97,4 +98,20 @@ class SessionRegistry:
             except (KeyError, ValueError, TypeError):
                 continue
             reg._sessions[sess.session_id] = sess
+        reg._normalize_slots()
         return reg
+
+    def _normalize_slots(self) -> None:
+        """Clear invalid or duplicate slots (newest keeps a contested slot),
+        then promote overflow sessions into any free slots."""
+        seen: set[int] = set()
+        for sess in sorted(self._sessions.values(), key=lambda s: s.since, reverse=True):
+            slot = sess.slot
+            if slot is None:
+                continue
+            valid = isinstance(slot, int) and not isinstance(slot, bool) and 0 <= slot < MAX_SLOTS
+            if not valid or slot in seen:
+                sess.slot = None
+            else:
+                seen.add(slot)
+        self._promote_overflow()

@@ -86,3 +86,36 @@ def test_roundtrip_serialization():
 def test_from_dict_tolerates_garbage():
     assert SessionRegistry.from_dict({"sessions": [{"nope": 1}]}).sessions() == []
     assert SessionRegistry.from_dict({}).sessions() == []
+
+
+def test_from_dict_normalizes_corrupt_slots():
+    data = {"sessions": [
+        {"session_id": "a", "cwd": "/p", "pid": 1, "status": "busy", "slot": 0, "since": 1.0},
+        {"session_id": "b", "cwd": "/p", "pid": 2, "status": "busy", "slot": 0, "since": 2.0},
+        {"session_id": "c", "cwd": "/p", "pid": 3, "status": "busy", "slot": 99, "since": 3.0},
+        {"session_id": "d", "cwd": "/p", "pid": 4, "status": "busy", "slot": "5", "since": 4.0},
+    ]}
+    reg = SessionRegistry.from_dict(data)
+    slots = {s.session_id: s.slot for s in reg.sessions()}
+    assert slots == {"b": 0, "a": 1, "c": 2, "d": 3}
+
+
+def test_from_dict_promotes_overflow_when_slots_free():
+    data = {"sessions": [
+        {"session_id": "a", "cwd": "/p", "pid": 1, "status": "busy", "slot": None, "since": 1.0},
+    ]}
+    reg = SessionRegistry.from_dict(data)
+    assert reg.sessions()[0].slot == 0
+
+
+def test_promote_overflow_orders_by_since():
+    reg = SessionRegistry()
+    for i in range(16):
+        _start(reg, f"s{i}", t=float(i))
+    _start(reg, "late", t=100.0)
+    _start(reg, "early", t=50.0)
+    reg.apply_event("SessionEnd", "s0", "/proj/s0", 100, None, 200.0)
+    reg.apply_event("SessionEnd", "s1", "/proj/s1", 100, None, 200.0)
+    slots = {s.session_id: s.slot for s in reg.sessions()}
+    assert slots["early"] == 0
+    assert slots["late"] == 1
