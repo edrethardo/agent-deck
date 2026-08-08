@@ -95,9 +95,13 @@ One text line per active session: `<slot> <project name> <status symbol>`. At mo
 - **Daemon tests:** against a fake pad (mocked `aioesphomeapi`), incl. reconnect-pushes-full-state.
 - **Hardware smoke test:** ESPHome config compiles; `agent-monitor test-pattern` on the real pad.
 
+## Key-press name overlay (added 2026-08-08 on Aaron's request)
+
+Pressing a key shows that session's name on the OLED for ~3 seconds, then the list returns. Mechanics: the daemon sends a third array `names: string[]` (16 entries, full project name per slot, empty = free) with every `set_state` call; the firmware scans the 4×4 key matrix (rows GPIO 0/4/5/12, columns GPIO 16/15/14/13, from the stock firmware) and on key press displays `key N` plus the stored name (or `(free)`), refreshing the display immediately.
+
 ## Deliberately not in v1
 
-- Pad keys trigger nothing (e.g. "press key → focus that session's terminal" would be a later feature).
+- Beyond the name overlay, pad keys trigger nothing on the PC (e.g. "press key → focus that session's terminal" would be a later feature).
 - No encoder functions, no battery-operation tuning.
 - No GUI beyond the CLI, no MQTT, no Home Assistant.
 

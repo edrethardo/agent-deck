@@ -1909,6 +1909,15 @@ git commit -m "feat: installation — systemd unit, hook registration, README"
 
 ---
 
+### Task 13: Key-press session name overlay (added on Aaron's request)
+
+**Files:**
+- Modify: `src/agent_monitor/render.py` (+`key_names()`), `src/agent_monitor/pad.py` (3-arg `show`, `SERVICE_ARGS` gains `names`), `src/agent_monitor/daemon.py` (`_refresh` passes names), `src/agent_monitor/cli.py` (test-pattern passes names), `firmware/deepdeck.yaml` (matrix keypad, overlay globals, display overlay, `set_state` gains `names: string[]`), and the corresponding tests.
+
+Summary (full code provided at dispatch time): `render.key_names(sessions)` returns 16 full project names (≤25 chars, `""` = free key). `DeepDeckPad.show(colors, lines, names)` buffers and pushes all three; the firmware stores `names` in a global, scans the 4×4 matrix (rows GPIO 0/4/5/12, cols GPIO 16/15/14/13), and a key press sets `overlay_slot`/`overlay_until` (3 s) and forces a display update; the display lambda renders `key N` + name (or `(free)`) while the overlay is active. Task 12 additionally verifies the key→slot mapping via the overlay.
+
+---
+
 ### Task 12: Hardware bring-up (manual, with Aaron)
 
 **Files:**
