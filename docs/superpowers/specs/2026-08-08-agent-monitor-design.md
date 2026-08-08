@@ -1,108 +1,108 @@
 # Agent Monitor — Design
 
-**Datum:** 2026-08-08
-**Status:** Vom User freigegebenes Design
+**Date:** 2026-08-08
+**Status:** Design approved by user
 
 ## Problem
 
-Aaron fährt parallel mehrere Claude-Code-Sessions (Terminal und VSCode, verschiedene Projekte) und sieht nicht, welche Session gerade arbeitet, fertig ist oder auf Input wartet. Gewünscht ist eine Ampel-Anzeige pro Session:
+Aaron runs several Claude Code sessions in parallel (terminal and VSCode, different projects) and cannot see which session is currently working, finished, or waiting for input. He wants a traffic-light display per session:
 
-- 🟢 **Grün** — verfügbar: Session ist offen und wartet auf einen (neuen) Prompt; auch direkt nach Abschluss einer Aufgabe.
-- 🟡 **Gelb** — busy: Claude arbeitet gerade.
-- 🔴 **Rot** — erwarte Input: Claude hängt *mitten in der Arbeit* und braucht Aaron (Permission-Prompt, Rückfrage, Plan-Freigabe). Explizit **nicht** rot: fertig und wartet auf den nächsten Prompt — das ist grün.
+- 🟢 **Green** — available: session is open and waiting for a (new) prompt; also right after finishing a task.
+- 🟡 **Yellow** — busy: Claude is working.
+- 🔴 **Red** — needs input: Claude is blocked *mid-task* and needs Aaron (permission prompt, question, plan approval). Explicitly **not** red: finished and waiting for the next prompt — that is green.
 
-## Entscheidungen (aus dem Brainstorming)
+## Decisions (from brainstorming)
 
-1. **Hardware-Anzeige:** DeepDeck (Open-Source-ESP32-Macropad von DeepSea Developments). Specs: ESP32-WROOM-32D, WiFi, 18× SK6812-RGB-LEDs (16 Tasten), OLED 0,96" SSD1306 128×64 (I2C), 2× EC11-Encoder, CP2102N USB-Serial. Quelle: https://deepdeck.co/en/QuickStartGuide/hw-specs/
-2. **Eine Taste/LED pro Session** (kein Aggregat) — bis zu 16 Sessions.
-3. **Rot nur bei Blockierung** (siehe oben).
-4. **Anzeige:** DeepDeck **plus** Terminal-Ansicht (CLI).
-5. **Firmware darf ersetzt werden** — die Macropad-Funktion wird nicht benötigt.
-6. **Gewählter Ansatz:** ESPHome-Firmware auf dem Pad + ESPHome **native API** vom PC aus (kein MQTT-Broker). Verworfen: ESPHome+MQTT (Broker als zusätzliche Infrastruktur ohne aktuellen Nutzen), Fork der Stock-Firmware (deutlich mehr Aufwand, unnötig da Firmware ersetzbar).
+1. **Hardware display:** DeepDeck (open-source ESP32 macropad by DeepSea Developments). Specs: ESP32-WROOM-32D, WiFi, 18× SK6812 RGB LEDs (16 keys), OLED 0.96" SSD1306 128×64 (I2C), 2× EC11 encoders, CP2102N USB serial. Source: https://deepdeck.co/en/QuickStartGuide/hw-specs/
+2. **One key/LED per session** (no aggregate) — up to 16 sessions.
+3. **Red only when blocked** (see above).
+4. **Display:** DeepDeck **plus** a terminal view (CLI).
+5. **Firmware may be replaced** — the macropad functionality is not needed.
+6. **Chosen approach:** ESPHome firmware on the pad + ESPHome **native API** from the PC (no MQTT broker). Rejected: ESPHome+MQTT (a broker is extra infrastructure with no current benefit), forking the stock firmware (much more effort, unnecessary since the firmware is replaceable).
 
-## Architektur
+## Architecture
 
 ```
-Claude Sessions ──Hooks──▶ agent-monitor daemon ──ESPHome-API (WiFi)──▶ DeepDeck
- (Terminal, VSCode)            │        │                                16 LEDs + OLED
+Claude sessions ──hooks──▶ agent-monitor daemon ──ESPHome API (WiFi)──▶ DeepDeck
+ (terminal, VSCode)            │        │                                16 LEDs + OLED
                                │        └── state.json ◀── agent-monitor status (CLI)
                                └── systemd user service
 ```
 
-Claude-Code-Hooks melden Statuswechsel an einen lokalen Daemon. Der Daemon hält den Zustand aller Sessions, schiebt ihn ans DeepDeck und schreibt ihn in eine State-Datei, aus der die CLI liest. Das Pad ist eine dumme Anzeige ohne eigene Logik.
+Claude Code hooks report status changes to a local daemon. The daemon keeps the state of all sessions, pushes it to the DeepDeck, and writes it to a state file the CLI reads from. The pad is a dumb display with no logic of its own.
 
-## Komponenten
+## Components
 
-Ein Python-Paket `agent-monitor` (Python 3.12, `uv`) mit drei Einstiegspunkten, plus eine ESPHome-Konfiguration.
+One Python package `agent-monitor` (Python 3.12, `uv`) with three entry points, plus an ESPHome configuration.
 
-### 1. ESPHome-Firmware (`firmware/deepdeck.yaml`)
+### 1. ESPHome firmware (`firmware/deepdeck.yaml`)
 
-- Basis: `esp32` (WROOM-32D), WiFi, `api` (mit Verschlüsselung), `ota`.
-- 18 SK6812-LEDs als adressierbarer Strip (`esp32_rmt_led_strip`), SSD1306-OLED über I2C.
-- Ein benutzerdefinierter API-Service nimmt den kompletten Anzeigezustand entgegen: LED-Farben (Array) + OLED-Textzeilen. Keine Logik auf dem ESP32.
-- Pin-Belegung (LED-Datenpin, I2C-Pins) wird aus der offenen Stock-Firmware übernommen: https://github.com/DeepSea-Developments/DeepDeck.Ahuyama.fw *(bei Implementierung zu extrahieren)*.
+- Base: `esp32` (WROOM-32D), WiFi, `api` (with encryption), `ota`.
+- 18 SK6812 LEDs as an addressable strip (`esp32_rmt_led_strip`), SSD1306 OLED over I2C.
+- A user-defined API service receives the complete display state: LED colors (array) + OLED text lines. No logic on the ESP32.
+- Pin mapping (LED data pin, I2C pins) taken from the open stock firmware: https://github.com/DeepSea-Developments/DeepDeck.Ahuyama.fw *(to be extracted during implementation)*.
 
 ### 2. Daemon (`agent-monitor daemon`)
 
-- Läuft als systemd user service.
-- Lauscht auf einem Unix-Socket (unter `$XDG_RUNTIME_DIR/agent-monitor/`) auf Hook-Events.
-- Zustand pro Session: `session_id`, Status, Projektpfad (`cwd`), PID des Claude-Prozesses, Slot (Taste 1–16), Zeitstempel des letzten Events.
-- Slot-Vergabe: neue Session → niedrigster freier Slot; bleibt für die Lebensdauer der Session stabil.
-- Bei jeder Zustandsänderung: LEDs + OLED über `aioesphomeapi` aktualisieren und `state.json` atomar schreiben.
+- Runs as a systemd user service.
+- Listens on a Unix socket (under `$XDG_RUNTIME_DIR/agent-monitor/`) for hook events.
+- State per session: `session_id`, status, project path (`cwd`), PID of the Claude process, slot (key 1–16), timestamp of the last event.
+- Slot assignment: new session → lowest free slot; stays stable for the lifetime of the session.
+- On every state change: update LEDs + OLED via `aioesphomeapi` and write `state.json` atomically.
 
-### 3. Hook-Client (`agent-monitor hook`)
+### 3. Hook client (`agent-monitor hook`)
 
-- Wird von Claude Code bei `SessionStart`, `UserPromptSubmit`, `Notification`, `Stop`, `SessionEnd` aufgerufen; global registriert in `~/.claude/settings.json` (gilt für alle Projekte).
-- Liest das Hook-JSON von stdin, ergänzt die PID des Claude-Prozesses (Parent-PID des Hook-Prozesses), schickt alles an den Socket.
-- Fire-and-forget mit kurzem Timeout; alle Fehler werden geschluckt. **Der Hook darf Claude nie blockieren oder Fehler produzieren** — auch wenn der Daemon nicht läuft.
+- Invoked by Claude Code on `SessionStart`, `UserPromptSubmit`, `Notification`, `Stop`, `SessionEnd`; registered globally in `~/.claude/settings.json` (applies to all projects).
+- Reads the hook JSON from stdin, adds the PID of the Claude process (parent PID of the hook process), sends everything to the socket.
+- Fire-and-forget with a short timeout; all errors are swallowed. **The hook must never block Claude or produce errors** — even when the daemon is not running.
 
 ### 4. CLI (`agent-monitor status [--watch]`)
 
-- Liest `state.json`, zeigt eine farbige Tabelle: Slot, Projekt (Verzeichnisname), Status, Dauer im aktuellen Status.
-- `--watch`: Live-Aktualisierung.
-- Meldet klar, wenn der Daemon nicht läuft.
+- Reads `state.json`, shows a colored table: slot, project (directory name), status, time in current status.
+- `--watch`: live refresh.
+- Clearly reports when the daemon is not running.
 
-Zusätzlich: `agent-monitor test-pattern` fährt alle LEDs einmal durch grün/gelb/rot (Hardware-Smoke-Test).
+Additionally: `agent-monitor test-pattern` cycles all LEDs through green/yellow/red once (hardware smoke test).
 
-## Statuslogik
+## Status logic
 
-| Hook-Event | Neuer Status |
+| Hook event | New status |
 |---|---|
-| `SessionStart` | 🟢 grün |
-| `UserPromptSubmit` | 🟡 gelb |
-| `Notification` (Permission/Rückfrage) | 🔴 rot |
-| `Stop` | 🟢 grün |
-| `SessionEnd` | Session entfernt, Slot frei, LED aus |
+| `SessionStart` | 🟢 green |
+| `UserPromptSubmit` | 🟡 yellow |
+| `Notification` (permission/question) | 🔴 red |
+| `Stop` | 🟢 green |
+| `SessionEnd` | Session removed, slot freed, LED off |
 
-- `Notification`-Events werden am Nachrichtentext gefiltert: Permission-Anfragen/Rückfragen → rot; reine Idle-Meldungen („waiting for your input" nach Untätigkeit am Prompt) ändern den Status **nicht**, damit unbenutzte Sessions grün bleiben. *Die exakten Payload-Texte werden bei der Implementierung mit echten Sessions verifiziert.*
-- Unbekannte/irrelevante Events werden ignoriert.
+- `Notification` events are filtered by message text: permission requests/questions → red; pure idle notifications ("waiting for your input" after sitting idle at the prompt) do **not** change the status, so unused sessions stay green. *The exact payload texts will be verified with real sessions during implementation.*
+- Unknown/irrelevant events are ignored.
 
-## OLED-Anzeige
+## OLED display
 
-Eine Textzeile pro aktiver Session: `<Slot> <Projektname> <Status-Symbol>`. Maximal 8 Zeilen (Displayhöhe); weitere Sessions werden abgeschnitten — die LEDs zeigen weiterhin alle 16 Slots.
+One text line per active session: `<slot> <project name> <status symbol>`. At most 8 lines (display height); further sessions are cut off — the LEDs still show all 16 slots.
 
-## Fehlerbehandlung
+## Error handling
 
-- **Daemon läuft nicht:** Hooks verwerfen ihr Event kommentarlos; CLI meldet „Daemon läuft nicht".
-- **Pad offline / WiFi weg:** Daemon reconnected dauerhaft (Reconnect-Logik von `aioesphomeapi`) und pusht nach jedem Reconnect den *kompletten* Zustand, nicht Deltas. Kein veralteter LED-Stand.
-- **Session hart beendet** (`SessionEnd` fehlt): Daemon prüft periodisch (~ alle 15 s) die Claude-PIDs über `/proc`; tote Sessions werden entfernt.
-- **Daemon-Neustart:** Zustand wird aus `state.json` geladen und sofort per PID-Check bereinigt.
-- **Mehr als 16 Sessions:** Overflow-Sessions ohne LED, aber sichtbar in der CLI.
+- **Daemon not running:** hooks silently drop their event; CLI reports "daemon is not running".
+- **Pad offline / WiFi gone:** daemon reconnects indefinitely (`aioesphomeapi` reconnect logic) and pushes the *complete* state after every reconnect, not deltas. No stale LED state.
+- **Session killed hard** (`SessionEnd` missing): daemon periodically (~every 15 s) checks the Claude PIDs via `/proc`; dead sessions are removed.
+- **Daemon restart:** state is loaded from `state.json` and immediately cleaned up via PID check.
+- **More than 16 sessions:** overflow sessions get no LED but are visible in the CLI.
 
 ## Testing
 
-- **Unit-Tests (TDD):** State-Machine (Event → Statusübergang), Slot-Vergabe/-Freigabe, Staleness-Bereinigung, Notification-Filterung, Parsing der Hook-Payloads.
-- **Daemon-Tests:** gegen ein Fake-Pad (gemocktes `aioesphomeapi`), inkl. Reconnect-pusht-vollen-Zustand.
-- **Hardware-Smoke-Test:** ESPHome-Config kompiliert; `agent-monitor test-pattern` auf dem echten Pad.
+- **Unit tests (TDD):** state machine (event → status transition), slot assignment/release, staleness cleanup, notification filtering, hook payload parsing.
+- **Daemon tests:** against a fake pad (mocked `aioesphomeapi`), incl. reconnect-pushes-full-state.
+- **Hardware smoke test:** ESPHome config compiles; `agent-monitor test-pattern` on the real pad.
 
-## Bewusst nicht in v1
+## Deliberately not in v1
 
-- Tasten des Pads lösen nichts aus (z. B. „Taste drücken → Terminal der Session fokussieren" wäre ein späteres Feature).
-- Keine Encoder-Funktionen, kein Batteriebetrieb-Feintuning.
-- Keine GUI über die CLI hinaus, kein MQTT, kein Home Assistant.
+- Pad keys trigger nothing (e.g. "press key → focus that session's terminal" would be a later feature).
+- No encoder functions, no battery-operation tuning.
+- No GUI beyond the CLI, no MQTT, no Home Assistant.
 
-## Offene Punkte für die Implementierung
+## Open points for implementation
 
-1. Pin-Belegung (LED-Datenpin, I2C) aus der Stock-Firmware extrahieren.
-2. Exakte `Notification`-Payload-Texte mit echten Sessions verifizieren.
-3. WiFi-Zugangsdaten und API-Key: lokal in `firmware/secrets.yaml` (nicht committen; `.gitignore`).
+1. Extract pin mapping (LED data pin, I2C) from the stock firmware.
+2. Verify exact `Notification` payload texts with real sessions.
+3. WiFi credentials and API key: locally in `firmware/secrets.yaml` (not committed; `.gitignore`).

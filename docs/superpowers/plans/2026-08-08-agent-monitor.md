@@ -2,42 +2,44 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ampel-Anzeige (grün/gelb/rot) für alle lokalen Claude-Code-Sessions auf einem DeepDeck-Macropad (ESPHome) plus Terminal-CLI.
+**Goal:** Traffic-light display (green/yellow/red) for all local Claude Code sessions on a DeepDeck macropad (ESPHome) plus a terminal CLI.
 
-**Architecture:** Claude-Code-Hooks schicken Events an einen lokalen Daemon (Unix-Socket). Der Daemon hält eine Session-Registry (Status, Slot 0–15, PID), rendert daraus LED-Farben + OLED-Zeilen und pusht sie per ESPHome native API ans Pad; parallel schreibt er `state.json` für die CLI. Das Pad ist eine dumme Anzeige (ESPHome-Firmware mit einem `set_state`-Service).
+**Architecture:** Claude Code hooks send events to a local daemon (Unix socket). The daemon keeps a session registry (status, slot 0–15, PID), renders LED colors + OLED lines from it and pushes them to the pad via the ESPHome native API; in parallel it writes `state.json` for the CLI. The pad is a dumb display (ESPHome firmware with a `set_state` service).
 
 **Tech Stack:** Python 3.12, `uv`, `aioesphomeapi`, `rich`, pytest + pytest-asyncio (`asyncio_mode=auto`), ESPHome (via `uvx`), systemd user service.
 
 **Spec:** `docs/superpowers/specs/2026-08-08-agent-monitor-design.md`
 
-**Hardware-Fakten** (aus der Stock-Firmware `DeepSea-Developments/DeepDeck.Ahuyama.fw` extrahiert):
-- Tasten-LEDs: **16× WS2812/SK6812 an GPIO17** (eigener Strip; Slot i = LED i, ggf. Remap nach Hardware-Test)
-- Notification-LEDs: 2× an GPIO23 — **in v1 ungenutzt**
-- OLED: SSD1306 128×64, I2C **SDA=GPIO21, SCL=GPIO22**, Adresse 0x3C
-- Board: ESP32-WROOM-32D (`esp32dev`), USB-Serial CP2102N
+**Language:** All code, comments, docstrings, UI strings, and commit messages in English.
 
-**Datenformate (überall identisch):**
-- Hook→Daemon (JSON-Zeile über Unix-Socket): `{"event": "Stop", "session_id": "...", "cwd": "/pfad", "pid": 12345, "message": null}`
+**Hardware facts** (extracted from the stock firmware `DeepSea-Developments/DeepDeck.Ahuyama.fw`):
+- Key LEDs: **16× WS2812/SK6812 on GPIO17** (own strip; slot i = LED i, remap after hardware test if needed)
+- Notification LEDs: 2× on GPIO23 — **unused in v1**
+- OLED: SSD1306 128×64, I2C **SDA=GPIO21, SCL=GPIO22**, address 0x3C
+- Board: ESP32-WROOM-32D (`esp32dev`), USB serial CP2102N
+
+**Data formats (identical everywhere):**
+- Hook→daemon (JSON line over Unix socket): `{"event": "Stop", "session_id": "...", "cwd": "/path", "pid": 12345, "message": null}`
 - `state.json`: `{"updated": 1723.0, "sessions": [{"session_id": "...", "cwd": "...", "pid": 1, "status": "available", "slot": 0, "since": 1723.0}]}`
-- Daemon→Pad (ESPHome-Service `set_state`): `colors` = 48 ints (16 LEDs × RGB, 0–255), `lines` = bis zu 8 Strings.
+- Daemon→pad (ESPHome service `set_state`): `colors` = 48 ints (16 LEDs × RGB, 0–255), `lines` = up to 8 strings.
 
-**Dateistruktur:**
+**File structure:**
 
 ```
 pyproject.toml
 .gitignore
 src/agent_monitor/
-  __init__.py    (leer)
-  model.py       Status-Enum, Session-Dataclass, status_for_event()
-  state.py       SessionRegistry (Slots, apply_event, prune, (De-)Serialisierung)
-  render.py      Sessions → LED-Farben + OLED-Zeilen
-  paths.py       Socket-/State-/Config-Pfade (XDG)
-  config.py      PadConfig aus config.toml
-  hook.py        Hook-Client (stdin-JSON → Socket, niemals Fehler)
-  pad.py         DeepDeckPad (aioesphomeapi, Reconnect, Full-State-Push)
-  daemon.py      Daemon (Socket-Server, Refresh, Prune-Loop)
-  statusview.py  CLI-Tabelle (+ --watch)
-  cli.py         argparse-Einstieg: daemon | hook | status | test-pattern
+  __init__.py    (empty)
+  model.py       Status enum, Session dataclass, status_for_event()
+  state.py       SessionRegistry (slots, apply_event, prune, (de)serialization)
+  render.py      sessions → LED colors + OLED lines
+  paths.py       socket/state/config paths (XDG)
+  config.py      PadConfig from config.toml
+  hook.py        hook client (stdin JSON → socket, never fails)
+  pad.py         DeepDeckPad (aioesphomeapi, reconnect, full-state push)
+  daemon.py      daemon (socket server, refresh, prune loop)
+  statusview.py  CLI table (+ --watch)
+  cli.py         argparse entry: daemon | hook | status | test-pattern
 tests/
   test_model.py test_state.py test_render.py test_config.py
   test_hook.py test_pad.py test_daemon.py test_statusview.py
@@ -49,18 +51,18 @@ systemd/agent-monitor.service
 
 ---
 
-### Task 1: Projektgerüst
+### Task 1: Project scaffolding
 
 **Files:**
 - Create: `pyproject.toml`, `.gitignore`, `src/agent_monitor/__init__.py`, `tests/test_smoke.py`
 
-- [ ] **Step 1: pyproject.toml schreiben**
+- [ ] **Step 1: Write pyproject.toml**
 
 ```toml
 [project]
 name = "agent-monitor"
 version = "0.1.0"
-description = "Ampel-Status für Claude-Code-Sessions auf DeepDeck + CLI"
+description = "Traffic-light status for Claude Code sessions on a DeepDeck + CLI"
 requires-python = ">=3.12"
 dependencies = [
     "aioesphomeapi>=21",
@@ -88,7 +90,7 @@ build-backend = "hatchling.build"
 packages = ["src/agent_monitor"]
 ```
 
-- [ ] **Step 2: .gitignore schreiben**
+- [ ] **Step 2: Write .gitignore**
 
 ```gitignore
 .venv/
@@ -101,9 +103,9 @@ firmware/secrets.yaml
 firmware/.esphome/
 ```
 
-- [ ] **Step 3: Paket + Smoke-Test anlegen**
+- [ ] **Step 3: Create package + smoke test**
 
-`src/agent_monitor/__init__.py`: leere Datei.
+`src/agent_monitor/__init__.py`: empty file.
 
 `tests/test_smoke.py`:
 ```python
@@ -111,7 +113,7 @@ def test_import():
     import agent_monitor  # noqa: F401
 ```
 
-- [ ] **Step 4: Sync + Tests laufen lassen**
+- [ ] **Step 4: Sync + run tests**
 
 Run: `uv sync && uv run pytest -q`
 Expected: `1 passed`
@@ -120,18 +122,18 @@ Expected: `1 passed`
 
 ```bash
 git add pyproject.toml .gitignore src tests uv.lock
-git commit -m "chore: Projektgerüst (uv, pytest, Paket agent_monitor)"
+git commit -m "chore: project scaffolding (uv, pytest, agent_monitor package)"
 ```
 
 ---
 
-### Task 2: Statuslogik (`model.py`)
+### Task 2: Status logic (`model.py`)
 
 **Files:**
 - Create: `src/agent_monitor/model.py`
 - Test: `tests/test_model.py`
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_model.py`:
 ```python
@@ -168,12 +170,12 @@ def test_unknown_event_returns_none():
     assert status_for_event("PreCompact", None, Status.BUSY) is None
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_model.py -q`
-Expected: FAIL / ERROR mit `ModuleNotFoundError: No module named 'agent_monitor.model'`
+Expected: FAIL / ERROR with `ModuleNotFoundError: No module named 'agent_monitor.model'`
 
-- [ ] **Step 3: Implementierung**
+- [ ] **Step 3: Implement**
 
 `src/agent_monitor/model.py`:
 ```python
@@ -184,9 +186,9 @@ from enum import Enum
 
 
 class Status(str, Enum):
-    AVAILABLE = "available"  # grün
-    BUSY = "busy"            # gelb
-    WAITING = "waiting"      # rot
+    AVAILABLE = "available"  # green
+    BUSY = "busy"            # yellow
+    WAITING = "waiting"      # red
 
 
 @dataclass
@@ -195,7 +197,7 @@ class Session:
     cwd: str
     pid: int
     status: Status
-    slot: int | None  # 0-15, None = Overflow (keine LED)
+    slot: int | None  # 0-15, None = overflow (no LED)
     since: float
 
     def to_dict(self) -> dict:
@@ -220,13 +222,13 @@ class Session:
         )
 
 
-# Notification-Texte, die KEINE Blockierung bedeuten (Session steht nur untätig
-# am Prompt) — laut Spec bleibt der Status dann unverändert.
+# Notification texts that do NOT mean the session is blocked (it is just
+# sitting idle at the prompt) — per spec the status stays unchanged then.
 IDLE_MARKERS = ("waiting for your input",)
 
 
 def status_for_event(event: str, message: str | None, current: Status | None) -> Status | None:
-    """Neuer Status für ein Hook-Event; None = Status nicht ändern."""
+    """New status for a hook event; None = do not change the status."""
     if event == "SessionStart":
         return Status.AVAILABLE
     if event == "UserPromptSubmit":
@@ -241,7 +243,7 @@ def status_for_event(event: str, message: str | None, current: Status | None) ->
     return None
 ```
 
-- [ ] **Step 4: Tests laufen lassen**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_model.py -q`
 Expected: `7 passed`
@@ -250,7 +252,7 @@ Expected: `7 passed`
 
 ```bash
 git add src/agent_monitor/model.py tests/test_model.py
-git commit -m "feat: Statuslogik — Hook-Events auf Ampelstatus abbilden"
+git commit -m "feat: status logic — map hook events to traffic-light status"
 ```
 
 ---
@@ -261,7 +263,7 @@ git commit -m "feat: Statuslogik — Hook-Events auf Ampelstatus abbilden"
 - Create: `src/agent_monitor/state.py`
 - Test: `tests/test_state.py`
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_state.py`:
 ```python
@@ -355,12 +357,12 @@ def test_from_dict_tolerates_garbage():
     assert SessionRegistry.from_dict({}).sessions() == []
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_state.py -q`
-Expected: FAIL mit `ModuleNotFoundError: No module named 'agent_monitor.state'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'agent_monitor.state'`
 
-- [ ] **Step 3: Implementierung**
+- [ ] **Step 3: Implement**
 
 `src/agent_monitor/state.py`:
 ```python
@@ -378,7 +380,7 @@ class SessionRegistry:
         self._sessions: dict[str, Session] = {}
 
     def sessions(self) -> list[Session]:
-        """Sortiert nach Slot, Overflow (None) zuletzt."""
+        """Sorted by slot, overflow (None) last."""
         return sorted(
             self._sessions.values(),
             key=lambda s: (s.slot is None, s.slot if s.slot is not None else 0, s.since),
@@ -396,7 +398,7 @@ class SessionRegistry:
         message: str | None,
         now: float,
     ) -> bool:
-        """Event einarbeiten. True, wenn sich der Anzeigezustand geändert hat."""
+        """Apply an event. True if the display state changed."""
         if event == "SessionEnd":
             if self._sessions.pop(session_id, None) is None:
                 return False
@@ -426,7 +428,7 @@ class SessionRegistry:
         return True
 
     def prune(self, pid_alive: Callable[[int], bool]) -> bool:
-        """Sessions toter Prozesse entfernen. True bei Änderung."""
+        """Remove sessions whose process is dead. True if anything changed."""
         dead = [sid for sid, s in self._sessions.items() if not pid_alive(s.pid)]
         for sid in dead:
             del self._sessions[sid]
@@ -466,7 +468,7 @@ class SessionRegistry:
         return reg
 ```
 
-- [ ] **Step 4: Tests laufen lassen**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_state.py -q`
 Expected: `11 passed`
@@ -475,7 +477,7 @@ Expected: `11 passed`
 
 ```bash
 git add src/agent_monitor/state.py tests/test_state.py
-git commit -m "feat: SessionRegistry mit Slot-Vergabe, Overflow und Prune"
+git commit -m "feat: SessionRegistry with slot assignment, overflow, and prune"
 ```
 
 ---
@@ -486,7 +488,7 @@ git commit -m "feat: SessionRegistry mit Slot-Vergabe, Overflow und Prune"
 - Create: `src/agent_monitor/render.py`
 - Test: `tests/test_render.py`
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_render.py`:
 ```python
@@ -528,12 +530,12 @@ def test_oled_truncates_to_eight_lines():
     assert len(oled_lines(sessions)) == 8
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_render.py -q`
-Expected: FAIL mit `ModuleNotFoundError: No module named 'agent_monitor.render'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'agent_monitor.render'`
 
-- [ ] **Step 3: Implementierung**
+- [ ] **Step 3: Implement**
 
 `src/agent_monitor/render.py`:
 ```python
@@ -544,8 +546,8 @@ import os
 from .model import Session, Status
 
 NUM_KEY_LEDS = 16
-# Physische LED-Reihenfolge auf dem Strip. Falls der Hardware-Test (Task 12)
-# eine andere Verdrahtung zeigt (z.B. Serpentinen), hier remappen.
+# Physical LED order on the strip. If the hardware test (Task 12) reveals a
+# different wiring (e.g. serpentine), remap here.
 KEY_LEDS = list(range(NUM_KEY_LEDS))
 BRIGHTNESS = 0.4
 MAX_OLED_LINES = 8
@@ -591,7 +593,7 @@ def oled_lines(sessions: list[Session]) -> list[str]:
     return lines[:MAX_OLED_LINES]
 ```
 
-- [ ] **Step 4: Tests laufen lassen**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_render.py -q`
 Expected: `6 passed`
@@ -600,18 +602,18 @@ Expected: `6 passed`
 
 ```bash
 git add src/agent_monitor/render.py tests/test_render.py
-git commit -m "feat: Rendering von Sessions zu LED-Farben und OLED-Zeilen"
+git commit -m "feat: render sessions to LED colors and OLED lines"
 ```
 
 ---
 
-### Task 5: Pfade und Konfiguration (`paths.py`, `config.py`)
+### Task 5: Paths and configuration (`paths.py`, `config.py`)
 
 **Files:**
 - Create: `src/agent_monitor/paths.py`, `src/agent_monitor/config.py`
 - Test: `tests/test_config.py`
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_config.py`:
 ```python
@@ -643,12 +645,12 @@ def test_config_parses_pad_section(tmp_path):
     assert (cfg.host, cfg.api_key, cfg.port) == ("10.0.0.5", "abc", 6053)
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_config.py -q`
-Expected: FAIL mit `ModuleNotFoundError`
+Expected: FAIL with `ModuleNotFoundError`
 
-- [ ] **Step 3: Implementierung**
+- [ ] **Step 3: Implement**
 
 `src/agent_monitor/paths.py`:
 ```python
@@ -696,7 +698,7 @@ class PadConfig:
 
 
 def load_pad_config(path: Path) -> PadConfig | None:
-    """None, wenn Datei fehlt, [pad] fehlt oder enabled=false — Daemon läuft dann ohne Pad."""
+    """None if the file is missing, [pad] is missing, or enabled=false — the daemon then runs without a pad."""
     try:
         data = tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError):
@@ -712,7 +714,7 @@ def load_pad_config(path: Path) -> PadConfig | None:
     )
 ```
 
-- [ ] **Step 4: Tests laufen lassen**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_config.py -q`
 Expected: `4 passed`
@@ -721,18 +723,18 @@ Expected: `4 passed`
 
 ```bash
 git add src/agent_monitor/paths.py src/agent_monitor/config.py tests/test_config.py
-git commit -m "feat: XDG-Pfade und Pad-Konfiguration aus config.toml"
+git commit -m "feat: XDG paths and pad configuration from config.toml"
 ```
 
 ---
 
-### Task 6: Hook-Client (`hook.py`)
+### Task 6: Hook client (`hook.py`)
 
 **Files:**
 - Create: `src/agent_monitor/hook.py`
 - Test: `tests/test_hook.py`
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_hook.py`:
 ```python
@@ -797,21 +799,21 @@ def test_hook_without_daemon_still_exits_zero(monkeypatch, tmp_path):
 
 def test_hook_with_garbage_stdin_exits_zero(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    _fake_stdin(monkeypatch, "kein json")
+    _fake_stdin(monkeypatch, "not json")
     assert hook.main() == 0
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_hook.py -q`
-Expected: FAIL mit `ModuleNotFoundError: No module named 'agent_monitor.hook'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'agent_monitor.hook'`
 
-- [ ] **Step 3: Implementierung**
+- [ ] **Step 3: Implement**
 
 `src/agent_monitor/hook.py`:
 ```python
-"""Hook-Client: wird von Claude Code aufgerufen. Darf NIEMALS fehlschlagen
-oder blockieren — jeder Fehler wird geschluckt, Exit-Code ist immer 0."""
+"""Hook client: invoked by Claude Code. Must NEVER fail or block —
+every error is swallowed, the exit code is always 0."""
 
 from __future__ import annotations
 
@@ -832,7 +834,7 @@ def main() -> int:
             "event": data.get("hook_event_name"),
             "session_id": data.get("session_id"),
             "cwd": data.get("cwd", ""),
-            "pid": os.getppid(),  # Parent = der Claude-Prozess
+            "pid": os.getppid(),  # parent = the Claude process
             "message": data.get("message"),
         }
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
@@ -844,7 +846,7 @@ def main() -> int:
     return 0
 ```
 
-- [ ] **Step 4: Tests laufen lassen**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_hook.py -q`
 Expected: `4 passed`
@@ -853,20 +855,20 @@ Expected: `4 passed`
 
 ```bash
 git add src/agent_monitor/hook.py tests/test_hook.py
-git commit -m "feat: Hook-Client — stdin-JSON an Daemon-Socket, fehlertolerant"
+git commit -m "feat: hook client — stdin JSON to daemon socket, fault-tolerant"
 ```
 
 ---
 
-### Task 7: Pad-Client (`pad.py`)
+### Task 7: Pad client (`pad.py`)
 
 **Files:**
 - Create: `src/agent_monitor/pad.py`
 - Test: `tests/test_pad.py`
 
-**Hintergrund für den Implementierer:** `aioesphomeapi.APIClient` spricht die ESPHome native API. Relevante Methoden: `await client.connect(login=True, on_stop=cb)` (cb ist ein async Callable `(expected_disconnect: bool) -> None`, wird bei Verbindungsabbruch gerufen), `await client.list_entities_services()` → `(entities, services)`, `client.execute_service(service, {...})` (synchron, fire-and-forget), `await client.disconnect()`. Wir injizieren eine `client_factory`, damit Tests ohne Netzwerk laufen.
+**Background for the implementer:** `aioesphomeapi.APIClient` speaks the ESPHome native API. Relevant methods: `await client.connect(login=True, on_stop=cb)` (cb is an async callable `(expected_disconnect: bool) -> None`, called on connection loss), `await client.list_entities_services()` → `(entities, services)`, `client.execute_service(service, {...})` (synchronous, fire-and-forget), `await client.disconnect()`. We inject a `client_factory` so tests run without a network.
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_pad.py`:
 ```python
@@ -920,8 +922,8 @@ async def test_show_after_connect_pushes_state(fakes):
     pad = DeepDeckPad(_cfg(), client_factory=factory)
     task = asyncio.create_task(pad.run())
     assert await pad.wait_connected(1)
-    await pad.show([1, 2, 3], ["zeile"])
-    assert created[0].calls[-1] == {"colors": [1, 2, 3], "lines": ["zeile"]}
+    await pad.show([1, 2, 3], ["line"])
+    assert created[0].calls[-1] == {"colors": [1, 2, 3], "lines": ["line"]}
     task.cancel()
 
 
@@ -942,7 +944,7 @@ async def test_reconnect_pushes_full_state_again(fakes):
     task = asyncio.create_task(pad.run())
     assert await pad.wait_connected(1)
     await pad.show([5], ["x"])
-    await created[0].on_stop(False)  # Verbindungsabbruch simulieren
+    await created[0].on_stop(False)  # simulate connection loss
     await asyncio.sleep(0.1)
     assert len(created) >= 2
     assert created[1].calls == [{"colors": [5], "lines": ["x"]}]
@@ -952,15 +954,15 @@ async def test_reconnect_pushes_full_state_again(fakes):
 async def test_show_without_connection_does_not_raise(fakes):
     _, factory = fakes
     pad = DeepDeckPad(_cfg(), client_factory=factory)
-    await pad.show([1], [])  # kein run() gestartet — darf nicht werfen
+    await pad.show([1], [])  # run() not started — must not raise
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_pad.py -q`
-Expected: FAIL mit `ModuleNotFoundError: No module named 'agent_monitor.pad'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'agent_monitor.pad'`
 
-- [ ] **Step 3: Implementierung**
+- [ ] **Step 3: Implement**
 
 `src/agent_monitor/pad.py`:
 ```python
@@ -979,10 +981,10 @@ SERVICE_NAME = "set_state"
 
 
 class DeepDeckPad:
-    """Hält die Verbindung zum DeepDeck und pusht den Anzeigezustand.
+    """Maintains the connection to the DeepDeck and pushes the display state.
 
-    `show()` merkt sich immer den letzten Zustand; nach jedem (Re-)Connect
-    wird der komplette Zustand erneut gepusht — nie nur Deltas.
+    `show()` always remembers the last state; after every (re)connect the
+    complete state is pushed again — never just deltas.
     """
 
     def __init__(self, config: PadConfig, client_factory: Callable | None = None):
@@ -1015,7 +1017,7 @@ class DeepDeckPad:
                     (s for s in services if s.name == SERVICE_NAME), None
                 )
                 if self._service is None:
-                    raise RuntimeError(f"Service {SERVICE_NAME!r} fehlt auf dem Pad")
+                    raise RuntimeError(f"service {SERVICE_NAME!r} missing on the pad")
                 self._client = client
                 self._connected.set()
                 await self._push_last()
@@ -1023,7 +1025,7 @@ class DeepDeckPad:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                _LOGGER.warning("Pad-Verbindung fehlgeschlagen: %s", exc)
+                _LOGGER.warning("pad connection failed: %s", exc)
             finally:
                 self._connected.clear()
                 self._client = None
@@ -1052,10 +1054,10 @@ class DeepDeckPad:
                 self._service, {"colors": self._last[0], "lines": self._last[1]}
             )
         except Exception as exc:
-            _LOGGER.warning("Pad-Push fehlgeschlagen: %s", exc)
+            _LOGGER.warning("pad push failed: %s", exc)
 ```
 
-- [ ] **Step 4: Tests laufen lassen**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_pad.py -q`
 Expected: `4 passed`
@@ -1064,7 +1066,7 @@ Expected: `4 passed`
 
 ```bash
 git add src/agent_monitor/pad.py tests/test_pad.py
-git commit -m "feat: DeepDeckPad — ESPHome-Client mit Reconnect und Full-State-Push"
+git commit -m "feat: DeepDeckPad — ESPHome client with reconnect and full-state push"
 ```
 
 ---
@@ -1075,7 +1077,7 @@ git commit -m "feat: DeepDeckPad — ESPHome-Client mit Reconnect und Full-State
 - Create: `src/agent_monitor/daemon.py`
 - Test: `tests/test_daemon.py`
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_daemon.py`:
 ```python
@@ -1129,7 +1131,7 @@ async def test_event_updates_state_file_and_pad(paths):
     assert state["sessions"][0]["session_id"] == "a"
     assert state["sessions"][0]["status"] == "available"
     colors, lines = pad.shows[-1]
-    assert colors[1] > 0  # Slot 0 leuchtet grün
+    assert colors[1] > 0  # slot 0 lights up green
     assert lines == [" 1 x            +"]
     task.cancel()
 
@@ -1141,8 +1143,8 @@ async def test_invalid_lines_are_ignored(paths):
     task = asyncio.create_task(daemon.run())
     await daemon.ready.wait()
     reader, writer = await asyncio.open_unix_connection(str(sock_path))
-    writer.write(b"kein json\n")
-    writer.write(json.dumps({"event": "Stop"}).encode() + b"\n")  # ohne session_id
+    writer.write(b"not json\n")
+    writer.write(json.dumps({"event": "Stop"}).encode() + b"\n")  # no session_id
     await writer.drain()
     writer.close()
     await asyncio.sleep(0.05)
@@ -1194,12 +1196,12 @@ async def test_stale_socket_file_is_replaced(paths):
     task.cancel()
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_daemon.py -q`
-Expected: FAIL mit `ModuleNotFoundError: No module named 'agent_monitor.daemon'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'agent_monitor.daemon'`
 
-- [ ] **Step 3: Implementierung**
+- [ ] **Step 3: Implement**
 
 `src/agent_monitor/daemon.py`:
 ```python
@@ -1273,8 +1275,8 @@ class Daemon:
                 task.cancel()
 
     def _load_state(self) -> None:
-        # Kompletten Snapshot inkl. Slots übernehmen — so behalten Sessions
-        # ihre Taste auch über einen Daemon-Neustart hinweg.
+        # Adopt the complete snapshot including slots — sessions keep their
+        # key across a daemon restart.
         try:
             data = json.loads(self._state_path.read_text())
         except (OSError, json.JSONDecodeError):
@@ -1333,21 +1335,21 @@ class Daemon:
                 await self._refresh()
 ```
 
-- [ ] **Step 4: Tests laufen lassen**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_daemon.py -q`
 Expected: `5 passed`
 
-- [ ] **Step 5: Alle Tests laufen lassen**
+- [ ] **Step 5: Run all tests**
 
 Run: `uv run pytest -q`
-Expected: `42 passed` (Smoke 1 + Model 7 + State 11 + Render 6 + Config 4 + Hook 4 + Pad 4 + Daemon 5), 0 failed
+Expected: `42 passed` (smoke 1 + model 7 + state 11 + render 6 + config 4 + hook 4 + pad 4 + daemon 5), 0 failed
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/agent_monitor/daemon.py tests/test_daemon.py
-git commit -m "feat: Daemon — Socket-Server, State-Datei, Pad-Push, Prune-Loop"
+git commit -m "feat: daemon — socket server, state file, pad push, prune loop"
 ```
 
 ---
@@ -1358,7 +1360,7 @@ git commit -m "feat: Daemon — Socket-Server, State-Datei, Pad-Push, Prune-Loop
 - Create: `src/agent_monitor/statusview.py`, `src/agent_monitor/cli.py`
 - Test: `tests/test_statusview.py`
 
-- [ ] **Step 1: Failing Tests schreiben**
+- [ ] **Step 1: Write failing tests**
 
 `tests/test_statusview.py`:
 ```python
@@ -1382,10 +1384,10 @@ def _state():
 def test_render_contains_projects_and_status():
     out = render_status(_state(), now=100.0, daemon_up=True)
     assert "lead-extractor" in out
-    assert "wartet auf Input" in out
-    assert "arbeitet" in out
-    assert "verfügbar" in out
-    assert "1m0s" in out  # waiting seit 60s
+    assert "waiting for input" in out
+    assert "working" in out
+    assert "available" in out
+    assert "1m0s" in out  # waiting for 60s
 
 
 def test_overflow_session_shows_dash_for_key():
@@ -1395,12 +1397,12 @@ def test_overflow_session_shows_dash_for_key():
 
 def test_daemon_down_warning():
     out = render_status(None, now=100.0, daemon_up=False)
-    assert "Daemon läuft nicht" in out
+    assert "daemon is not running" in out
 
 
 def test_empty_state_message():
     out = render_status({"updated": 1.0, "sessions": []}, now=2.0, daemon_up=True)
-    assert "Keine aktiven Sessions" in out
+    assert "No active sessions" in out
 
 
 def test_format_duration():
@@ -1409,12 +1411,12 @@ def test_format_duration():
     assert format_duration(3725) == "1h02m"
 ```
 
-- [ ] **Step 2: Tests laufen lassen — müssen fehlschlagen**
+- [ ] **Step 2: Run tests — must fail**
 
 Run: `uv run pytest tests/test_statusview.py -q`
-Expected: FAIL mit `ModuleNotFoundError`
+Expected: FAIL with `ModuleNotFoundError`
 
-- [ ] **Step 3: statusview implementieren**
+- [ ] **Step 3: Implement statusview**
 
 `src/agent_monitor/statusview.py`:
 ```python
@@ -1432,9 +1434,9 @@ from . import paths
 from .render import project_name
 
 STATUS_LABEL = {
-    "available": ("verfügbar", "green"),
-    "busy": ("arbeitet", "yellow"),
-    "waiting": ("wartet auf Input", "red bold"),
+    "available": ("available", "green"),
+    "busy": ("working", "yellow"),
+    "waiting": ("waiting for input", "red bold"),
 }
 
 
@@ -1467,18 +1469,18 @@ def read_state() -> dict | None:
 def render_status(state: dict | None, now: float, daemon_up: bool) -> str:
     console = Console(file=io.StringIO(), force_terminal=False, width=80)
     if not daemon_up:
-        console.print("[red]⚠ Daemon läuft nicht[/red] — starte ihn mit: "
+        console.print("[red]⚠ daemon is not running[/red] — start it with: "
                       "systemctl --user start agent-monitor")
     sessions = (state or {}).get("sessions", [])
     if not sessions:
-        console.print("Keine aktiven Sessions.")
+        console.print("No active sessions.")
         return console.file.getvalue()
 
     table = Table()
-    table.add_column("Taste", justify="right")
-    table.add_column("Projekt")
+    table.add_column("Key", justify="right")
+    table.add_column("Project")
     table.add_column("Status")
-    table.add_column("Seit", justify="right")
+    table.add_column("For", justify="right")
     for sess in sessions:
         label, style = STATUS_LABEL.get(sess["status"], (sess["status"], ""))
         key = "—" if sess["slot"] is None else str(sess["slot"] + 1)
@@ -1505,7 +1507,7 @@ def run_status(watch: bool) -> int:
         return 0
 ```
 
-- [ ] **Step 4: cli.py implementieren**
+- [ ] **Step 4: Implement cli.py**
 
 `src/agent_monitor/cli.py`:
 ```python
@@ -1528,7 +1530,7 @@ def _run_daemon() -> int:
     cfg = load_pad_config(paths.config_path())
     pad = DeepDeckPad(cfg) if cfg else None
     if pad is None:
-        logging.info("Kein Pad konfiguriert (%s) — läuft ohne Hardware", paths.config_path())
+        logging.info("no pad configured (%s) — running without hardware", paths.config_path())
     daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path())
     try:
         asyncio.run(daemon.run())
@@ -1544,24 +1546,24 @@ async def _test_pattern_async() -> int:
 
     cfg = load_pad_config(paths.config_path())
     if cfg is None:
-        print(f"Kein Pad konfiguriert — {paths.config_path()} anlegen (siehe README).")
+        print(f"No pad configured — create {paths.config_path()} (see README).")
         return 1
     pad = DeepDeckPad(cfg)
     task = asyncio.create_task(pad.run())
-    print(f"Verbinde mit {cfg.host} ...")
+    print(f"Connecting to {cfg.host} ...")
     if not await pad.wait_connected(30):
-        print("Pad nicht erreichbar.")
+        print("Pad unreachable.")
         task.cancel()
         return 1
-    print("Chase: eine grüne LED wandert über alle Tasten (Reihenfolge prüfen!)")
+    print("Chase: one green LED walks across all keys (check the order!)")
     for i in range(NUM_KEY_LEDS):
         colors = [0] * (NUM_KEY_LEDS * 3)
         colors[i * 3 + 1] = 255
-        await pad.show(colors, [f"Chase Taste {i + 1}"])
+        await pad.show(colors, [f"Chase key {i + 1}"])
         await asyncio.sleep(0.3)
-    for name, rgb in [("gruen", (0, 255, 0)), ("gelb", (255, 160, 0)),
-                      ("rot", (255, 0, 0)), ("aus", (0, 0, 0))]:
-        print(f"Alle Tasten: {name}")
+    for name, rgb in [("green", (0, 255, 0)), ("yellow", (255, 160, 0)),
+                      ("red", (255, 0, 0)), ("off", (0, 0, 0))]:
+        print(f"All keys: {name}")
         await pad.show(list(rgb) * NUM_KEY_LEDS, [f"Test: {name}"])
         await asyncio.sleep(1.0)
     task.cancel()
@@ -1571,11 +1573,11 @@ async def _test_pattern_async() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent-monitor")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("daemon", help="Daemon starten (via systemd)")
-    sub.add_parser("hook", help="Claude-Code-Hook-Einstieg (liest stdin)")
-    status = sub.add_parser("status", help="Session-Status anzeigen")
-    status.add_argument("--watch", action="store_true", help="live aktualisieren")
-    sub.add_parser("test-pattern", help="LED-Testmuster auf dem Pad abspielen")
+    sub.add_parser("daemon", help="run the daemon (via systemd)")
+    sub.add_parser("hook", help="Claude Code hook entry point (reads stdin)")
+    status = sub.add_parser("status", help="show session status")
+    status.add_argument("--watch", action="store_true", help="refresh live")
+    sub.add_parser("test-pattern", help="play an LED test pattern on the pad")
     args = parser.parse_args(argv)
 
     if args.cmd == "daemon":
@@ -1591,13 +1593,13 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 ```
 
-- [ ] **Step 5: Tests + manueller Smoke-Test**
+- [ ] **Step 5: Tests + manual smoke test**
 
 Run: `uv run pytest -q`
-Expected: alle Tests passed
+Expected: all tests passed
 
 Run: `uv run agent-monitor status`
-Expected: Ausgabe enthält `Daemon läuft nicht` und `Keine aktiven Sessions.`
+Expected: output contains `daemon is not running` and `No active sessions.`
 
 - [ ] **Step 6: Commit**
 
@@ -1608,31 +1610,31 @@ git commit -m "feat: CLI — status/--watch, daemon, hook, test-pattern"
 
 ---
 
-### Task 10: ESPHome-Firmware (`firmware/deepdeck.yaml`)
+### Task 10: ESPHome firmware (`firmware/deepdeck.yaml`)
 
 **Files:**
 - Create: `firmware/deepdeck.yaml`, `firmware/secrets.yaml.example`
 
-- [ ] **Step 1: secrets.yaml.example schreiben**
+- [ ] **Step 1: Write secrets.yaml.example**
 
 `firmware/secrets.yaml.example`:
 ```yaml
-# Nach firmware/secrets.yaml kopieren und ausfüllen (secrets.yaml ist gitignored).
-wifi_ssid: "MeinWLAN"
-wifi_password: "geheim"
-# Erzeugen mit: openssl rand -base64 32  — derselbe Key kommt in
-# ~/.config/agent-monitor/config.toml als api_key.
+# Copy to firmware/secrets.yaml and fill in (secrets.yaml is gitignored).
+wifi_ssid: "MyWifi"
+wifi_password: "secret"
+# Generate with: openssl rand -base64 32  — the same key goes into
+# ~/.config/agent-monitor/config.toml as api_key.
 api_key: "44dXhlcmVpbkJhc2U2NEtleUhpZXJFaW5zZXR6ZW4hIQ=="
-ota_password: "geheim-ota"
+ota_password: "secret-ota"
 ```
 
-- [ ] **Step 2: deepdeck.yaml schreiben**
+- [ ] **Step 2: Write deepdeck.yaml**
 
 `firmware/deepdeck.yaml`:
 ```yaml
-# DeepDeck als dumme Statusanzeige für agent-monitor.
-# Pins aus der Stock-Firmware (DeepSea-Developments/DeepDeck.Ahuyama.fw):
-#   Tasten-LEDs: 16x WS2812/SK6812 an GPIO17 (Notification-LEDs GPIO23 ungenutzt)
+# DeepDeck as a dumb status display for agent-monitor.
+# Pins from the stock firmware (DeepSea-Developments/DeepDeck.Ahuyama.fw):
+#   key LEDs: 16x WS2812/SK6812 on GPIO17 (notification LEDs GPIO23 unused)
 #   OLED SSD1306 128x64: I2C SDA=GPIO21 SCL=GPIO22
 esphome:
   name: deepdeck
@@ -1733,35 +1735,35 @@ display:
       }
 ```
 
-- [ ] **Step 3: Konfiguration validieren**
+- [ ] **Step 3: Validate the configuration**
 
 ```bash
 cp firmware/secrets.yaml.example firmware/secrets.yaml
 uvx esphome config firmware/deepdeck.yaml
 ```
-Expected: gerenderte Konfiguration wird ausgegeben, Exit-Code 0, keine `Failed config`-Blöcke.
-Falls Fehler zu `esp32_rmt_led_strip`-Optionen kommen (ESPHome-Versionen ändern hier gelegentlich Keys wie `rmt_symbols`): Fehlermeldung lesen und den beanstandeten Key gemäß Meldung anpassen — Pins und LED-Anzahl bleiben wie oben.
+Expected: rendered configuration is printed, exit code 0, no `Failed config` blocks.
+If errors about `esp32_rmt_led_strip` options come up (ESPHome versions occasionally change keys like `rmt_symbols`): read the error message and adjust the offending key as instructed — pins and LED count stay as above.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add firmware/deepdeck.yaml firmware/secrets.yaml.example
-git commit -m "feat: ESPHome-Firmware für DeepDeck (set_state-Service, LEDs, OLED)"
+git commit -m "feat: ESPHome firmware for DeepDeck (set_state service, LEDs, OLED)"
 ```
 
 ---
 
-### Task 11: Installation — systemd, Hooks, README
+### Task 11: Installation — systemd, hooks, README
 
 **Files:**
 - Create: `systemd/agent-monitor.service`, `README.md`, `scripts/install-hooks.py`
 
-- [ ] **Step 1: systemd-Unit schreiben**
+- [ ] **Step 1: Write systemd unit**
 
 `systemd/agent-monitor.service`:
 ```ini
 [Unit]
-Description=Agent Monitor — Claude-Session-Status auf DeepDeck
+Description=Agent Monitor — Claude session status on DeepDeck
 After=network-online.target
 
 [Service]
@@ -1773,12 +1775,12 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-- [ ] **Step 2: Hook-Installations-Skript schreiben**
+- [ ] **Step 2: Write hook installation script**
 
 `scripts/install-hooks.py`:
 ```python
 #!/usr/bin/env python3
-"""Registriert agent-monitor-Hooks in ~/.claude/settings.json (mit Backup)."""
+"""Registers agent-monitor hooks in ~/.claude/settings.json (with backup)."""
 import json
 import shutil
 from pathlib import Path
@@ -1803,56 +1805,56 @@ def main() -> None:
         if not already:
             entries.append({"hooks": [{"type": "command", "command": COMMAND, "timeout": 5}]})
     SETTINGS.write_text(json.dumps(cfg, indent=2) + "\n")
-    print(f"Hooks registriert in {SETTINGS} (Backup: {SETTINGS}.bak)")
+    print(f"Hooks registered in {SETTINGS} (backup: {SETTINGS}.bak)")
 
 
 if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 3: README schreiben**
+- [ ] **Step 3: Write README**
 
 `README.md`:
 ```markdown
 # agent-monitor
 
-Ampel-Status für Claude-Code-Sessions: 🟢 verfügbar · 🟡 arbeitet · 🔴 wartet auf Input.
-Anzeige auf einem DeepDeck-Macropad (ESPHome, 16 Tasten-LEDs + OLED) und als CLI.
+Traffic-light status for Claude Code sessions: 🟢 available · 🟡 working · 🔴 waiting for input.
+Displayed on a DeepDeck macropad (ESPHome, 16 key LEDs + OLED) and as a CLI.
 
 ## Installation (PC)
 
-    uv tool install --editable .          # installiert ~/.local/bin/agent-monitor
-    python3 scripts/install-hooks.py      # registriert Claude-Code-Hooks
+    uv tool install --editable .          # installs ~/.local/bin/agent-monitor
+    python3 scripts/install-hooks.py      # registers Claude Code hooks
     mkdir -p ~/.config/systemd/user
     cp systemd/agent-monitor.service ~/.config/systemd/user/
     systemctl --user daemon-reload
     systemctl --user enable --now agent-monitor
 
-Laufende Claude-Sessions melden sich erst nach einem Neustart der Session
-(Hooks werden beim Start geladen).
+Running Claude sessions only show up after being restarted
+(hooks are loaded at session start).
 
-## Pad-Konfiguration (~/.config/agent-monitor/config.toml)
+## Pad configuration (~/.config/agent-monitor/config.toml)
 
     [pad]
     enabled = true
-    host = "deepdeck.local"      # oder feste IP
-    api_key = "<derselbe Key wie in firmware/secrets.yaml>"
+    host = "deepdeck.local"      # or a fixed IP
+    api_key = "<same key as in firmware/secrets.yaml>"
 
-Ohne diese Datei läuft der Daemon ohne Hardware (nur CLI).
+Without this file the daemon runs without hardware (CLI only).
 
-## Firmware flashen (einmalig, per USB)
+## Flashing the firmware (once, over USB)
 
-    cp firmware/secrets.yaml.example firmware/secrets.yaml   # ausfüllen!
-    uvx esphome run firmware/deepdeck.yaml                   # danach: OTA über WiFi
+    cp firmware/secrets.yaml.example firmware/secrets.yaml   # fill it in!
+    uvx esphome run firmware/deepdeck.yaml                   # afterwards: OTA over WiFi
 
-## Benutzung
+## Usage
 
-    agent-monitor status           # Tabelle
+    agent-monitor status           # table
     agent-monitor status --watch   # live
-    agent-monitor test-pattern     # LED-Test auf dem Pad
+    agent-monitor test-pattern     # LED test on the pad
 ```
 
-- [ ] **Step 4: Installieren und verifizieren**
+- [ ] **Step 4: Install and verify**
 
 ```bash
 uv tool install --editable .
@@ -1863,81 +1865,81 @@ systemctl --user daemon-reload
 systemctl --user enable --now agent-monitor
 systemctl --user status agent-monitor --no-pager
 ```
-Expected: Unit `active (running)`; Log-Zeile „Kein Pad konfiguriert" (config.toml existiert noch nicht).
+Expected: unit `active (running)`; log line "no pad configured" (config.toml does not exist yet).
 
-Run: `cat ~/.claude/settings.json` — Expected: `hooks`-Block mit allen 5 Events, bestehende Keys (`model`, `enabledPlugins`, …) unverändert.
+Run: `cat ~/.claude/settings.json` — Expected: `hooks` block with all 5 events, existing keys (`model`, `enabledPlugins`, …) unchanged.
 
-- [ ] **Step 5: End-to-End ohne Hardware verifizieren**
+- [ ] **Step 5: Verify end-to-end without hardware**
 
-In einem beliebigen Projektordner eine **neue** Claude-Code-Session starten, etwas fragen, dann:
+Start a **new** Claude Code session in any project folder, ask something, then:
 
 Run: `agent-monitor status`
-Expected: Session erscheint mit Projektnamen; Status wechselt zwischen `arbeitet` (während Claude antwortet), `verfügbar` (danach) und `wartet auf Input` (bei einem Permission-Prompt, z.B. durch einen Befehl, der eine Freigabe braucht).
+Expected: session appears with its project name; status switches between `working` (while Claude responds), `available` (afterwards) and `waiting for input` (on a permission prompt, e.g. from a command that needs approval).
 
-**Notification-Texte verifizieren** (offener Punkt aus der Spec): Während der Testsession prüfen, dass ein Permission-Prompt → rot führt und eine untätig herumstehende Session grün bleibt. Falls nicht: tatsächliche `message`-Texte loggen (`journalctl --user -u agent-monitor`) und `IDLE_MARKERS` in `model.py` anpassen, Tests nachziehen.
+**Verify notification texts** (open point from the spec): during the test session confirm that a permission prompt → red, and a session sitting idle stays green. If not: log the actual `message` texts (`journalctl --user -u agent-monitor`) and adjust `IDLE_MARKERS` in `model.py`, updating the tests accordingly.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add systemd/agent-monitor.service scripts/install-hooks.py README.md
-git commit -m "feat: Installation — systemd-Unit, Hook-Registrierung, README"
+git commit -m "feat: installation — systemd unit, hook registration, README"
 ```
 
 ---
 
-### Task 12: Hardware-Inbetriebnahme (manuell, mit Aaron)
+### Task 12: Hardware bring-up (manual, with Aaron)
 
 **Files:**
-- Modify: ggf. `src/agent_monitor/render.py` (KEY_LEDS-Remap), `tests/test_render.py`
+- Modify: possibly `src/agent_monitor/render.py` (KEY_LEDS remap), `tests/test_render.py`
 
-Dieser Task braucht das physische DeepDeck per USB. Schritte einzeln mit Aaron durchgehen.
+This task needs the physical DeepDeck over USB. Walk through the steps together with Aaron.
 
-- [ ] **Step 1: Secrets ausfüllen**
+- [ ] **Step 1: Fill in secrets**
 
-`firmware/secrets.yaml`: echte WiFi-Zugangsdaten eintragen; `api_key` erzeugen mit `openssl rand -base64 32`.
+`firmware/secrets.yaml`: enter real WiFi credentials; generate `api_key` with `openssl rand -base64 32`.
 
-- [ ] **Step 2: Flashen (USB)**
+- [ ] **Step 2: Flash (USB)**
 
-DeepDeck per USB-C anschließen, dann:
+Connect the DeepDeck via USB-C, then:
 ```bash
 uvx esphome run firmware/deepdeck.yaml
 ```
-Bei Port-Auswahl den CP2102-Port (`/dev/ttyUSB0`) wählen. Bei `Permission denied`: `sudo usermod -aG dialout $USER` und neu einloggen.
-Expected: Build + Flash erfolgreich, Log zeigt `WiFi Connected` und die IP.
+At the port prompt pick the CP2102 port (`/dev/ttyUSB0`). On `Permission denied`: `sudo usermod -aG dialout $USER` and log in again.
+Expected: build + flash succeed, log shows `WiFi Connected` and the IP.
 
-- [ ] **Step 3: PC-Konfiguration anlegen**
+- [ ] **Step 3: Create PC configuration**
 
 `~/.config/agent-monitor/config.toml`:
 ```toml
 [pad]
 enabled = true
-host = "deepdeck.local"   # falls mDNS nicht auflöst: IP aus dem Flash-Log
-api_key = "<Wert aus firmware/secrets.yaml>"
+host = "deepdeck.local"   # if mDNS does not resolve: IP from the flash log
+api_key = "<value from firmware/secrets.yaml>"
 ```
-Dann: `systemctl --user restart agent-monitor`
+Then: `systemctl --user restart agent-monitor`
 
-- [ ] **Step 4: Testmuster prüfen**
+- [ ] **Step 4: Check the test pattern**
 
 Run: `agent-monitor test-pattern`
-Expected: eine grüne LED wandert der Reihe nach über Taste 1–16 (oben links → unten rechts, zeilenweise), dann leuchten alle Tasten grün → gelb → rot → aus; das OLED zeigt die Testtexte.
+Expected: one green LED walks across keys 1–16 in order (top left → bottom right, row by row), then all keys light green → yellow → red → off; the OLED shows the test texts.
 
-**Falls die Chase-Reihenfolge nicht zeilenweise läuft** (z.B. Serpentinen-Verdrahtung): beobachtete physische Reihenfolge notieren und in `render.py` die `KEY_LEDS`-Liste so remappen, dass `KEY_LEDS[slot]` die physisch richtige LED trifft; `test_waiting_session_lights_red_on_its_slot` in `tests/test_render.py` entsprechend anpassen; committen:
+**If the chase order is not row-by-row** (e.g. serpentine wiring): note the observed physical order and remap the `KEY_LEDS` list in `render.py` so `KEY_LEDS[slot]` hits the physically correct LED; adjust `test_waiting_session_lights_red_on_its_slot` in `tests/test_render.py` accordingly; commit:
 ```bash
 git add src/agent_monitor/render.py tests/test_render.py
-git commit -m "fix: KEY_LEDS an physische LED-Reihenfolge angepasst"
+git commit -m "fix: remap KEY_LEDS to physical LED order"
 ```
 
-- [ ] **Step 5: End-to-End mit echten Sessions**
+- [ ] **Step 5: End-to-end with real sessions**
 
-Mehrere Claude-Sessions parallel starten (verschiedene Projekte). Prüfen:
-- Jede Session bekommt eine eigene Taste; OLED listet `Nr Projekt Statuszeichen`.
-- Arbeitende Session = gelb, fertige = grün, Permission-Prompt = rot.
-- Session beenden → LED geht aus, Taste wird wieder frei.
-- WLAN des Pads kurz trennen (Stecker/Router) → nach Reconnect zeigt das Pad wieder den korrekten aktuellen Stand.
+Start several Claude sessions in parallel (different projects). Check:
+- Each session gets its own key; the OLED lists `no project statuschar`.
+- A working session = yellow, a finished one = green, a permission prompt = red.
+- Ending a session → LED goes off, key becomes free again.
+- Briefly cut the pad's WiFi (plug/router) → after reconnect the pad shows the correct current state again.
 
-- [ ] **Step 6: Abschluss-Commit**
+- [ ] **Step 6: Final commit**
 
 ```bash
 git add -A
-git commit -m "chore: Hardware-Inbetriebnahme abgeschlossen"
+git commit -m "chore: hardware bring-up complete"
 ```
