@@ -6,7 +6,7 @@
 
 **Architecture:** Claude Code hooks send events to a local daemon (Unix socket). The daemon keeps a session registry (status, slot 0–15, PID), renders LED colors + OLED lines from it and pushes them to the pad via the ESPHome native API; in parallel it writes `state.json` for the CLI. The pad is a dumb display (ESPHome firmware with a `set_state` service).
 
-**Tech Stack:** Python 3.12, `uv`, `aioesphomeapi`, `rich`, pytest + pytest-asyncio (`asyncio_mode=auto`), ESPHome (via `uvx`), systemd user service.
+**Tech Stack:** Python 3.14 (raised from 3.12 during review — asyncio's `serve_forever` cancellation only closes client connections since 3.14, older versions hang on shutdown), `uv`, `aioesphomeapi>=45,<46`, `rich`, pytest + pytest-asyncio (`asyncio_mode=auto`), ESPHome (via `uvx`), systemd user service.
 
 **Spec:** `docs/superpowers/specs/2026-08-08-agent-monitor-design.md`
 
@@ -866,7 +866,11 @@ git commit -m "feat: hook client — stdin JSON to daemon socket, fault-tolerant
 - Create: `src/agent_monitor/pad.py`
 - Test: `tests/test_pad.py`
 
-**Background for the implementer:** `aioesphomeapi.APIClient` speaks the ESPHome native API. Relevant methods: `await client.connect(login=True, on_stop=cb)` (cb is an async callable `(expected_disconnect: bool) -> None`, called on connection loss), `await client.list_entities_services()` → `(entities, services)`, `client.execute_service(service, {...})` (synchronous, fire-and-forget), `await client.disconnect()`. We inject a `client_factory` so tests run without a network.
+**Background for the implementer:** `aioesphomeapi.APIClient` speaks the ESPHome native API. Relevant methods: `await client.connect(login=True, on_stop=cb)` (cb is an async callable `(expected_disconnect: bool) -> None`, called on connection loss), `await client.list_entities_services()` → `(entities, services)`, `client.execute_service(service, {...})`, `await client.disconnect()`. We inject a `client_factory` so tests run without a network.
+
+> **DEVIATION (applied during implementation):** the installed aioesphomeapi 45.7.0 made `execute_service` **async**; the plan below originally assumed it was synchronous. The committed code therefore awaits its result when awaitable (`inspect.isawaitable`), the test fake's `execute_service` is `async def`, and `pyproject.toml` pins `aioesphomeapi>=45,<46`.
+>
+> **HARDENING (from code review, commit 4edbffc):** `run()` additionally clears `_connected`/`_client`/`_service` inside `_on_stop` (so an outage buffers instead of pushing to a dead client), creates the client inside the `try`, connects with `log_errors=False` and logs only the first failure of an outage at WARNING (rest DEBUG), uses capped exponential backoff (`min(delay*2, 60)`, reset on success), validates the `set_state` service's argument names at discovery, and bounds disconnects. `tests/test_pad.py` gained five failure-path tests. A second round (commit 123c6ea) binds each `on_stop` callback to its own connection via `_make_on_stop` (a stale callback can never tear down the live connection), uses `disconnect(force=True)` so no connection is ever abandoned alive, and floors file-loaded `reconnect_delay` at 0.5 s. The code blocks below are otherwise authoritative.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1072,6 +1076,8 @@ git commit -m "feat: DeepDeckPad — ESPHome client with reconnect and full-stat
 ---
 
 ### Task 8: Daemon (`daemon.py`)
+
+> **AMENDMENTS (applied during implementation, from code review):** shutdown cancels background tasks and awaits them via `gather(..., return_exceptions=True)`; every background task gets a done-callback logging unexpected death; the prune loop survives a failing tick (log + continue); `_load_state` ignores snapshots that are valid JSON but not an object; `_handle_client` catches `ValueError` (oversized line) and wraps each `handle_line` in log-and-continue; `run()` refuses to start if another daemon is already listening on the socket (connect probe); `_refresh` is serialized by an `asyncio.Lock`; `requires-python` raised to `>=3.14`. Task 9's `_run_daemon` must install a SIGTERM handler that cancels the daemon task so systemd stops are graceful. Tests: teardown awaits cancellation, `ready.wait` is bounded, slot preservation asserted, plus four extra tests (SessionEnd, non-object snapshot, oversized line, live-socket refusal).
 
 **Files:**
 - Create: `src/agent_monitor/daemon.py`
@@ -1516,6 +1522,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import signal
 
 from . import paths
 
@@ -1532,10 +1539,25 @@ def _run_daemon() -> int:
     if pad is None:
         logging.info("no pad configured (%s) — running without hardware", paths.config_path())
     daemon = Daemon(SessionRegistry(), pad, paths.state_path(), paths.socket_path())
+
+    async def _main() -> None:
+        # systemd stops with SIGTERM: cancel the daemon task so run()'s
+        # cleanup (cancel + gather of background tasks) actually executes.
+        task = asyncio.ensure_future(daemon.run())
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, task.cancel)
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
     try:
-        asyncio.run(daemon.run())
-    except KeyboardInterrupt:
-        pass
+        asyncio.run(_main())
+    except RuntimeError as exc:
+        # e.g. another daemon already owns the socket — exit cleanly, non-zero
+        logging.error("%s", exc)
+        return 1
     return 0
 
 
@@ -1887,12 +1909,26 @@ git commit -m "feat: installation — systemd unit, hook registration, README"
 
 ---
 
+### Task 13: Key-press session name overlay (added on Aaron's request)
+
+**Files:**
+- Modify: `src/agent_monitor/render.py` (+`key_names()`), `src/agent_monitor/pad.py` (3-arg `show`, `SERVICE_ARGS` gains `names`), `src/agent_monitor/daemon.py` (`_refresh` passes names), `src/agent_monitor/cli.py` (test-pattern passes names), `firmware/deepdeck.yaml` (matrix keypad, overlay globals, display overlay, `set_state` gains `names: string[]`), and the corresponding tests.
+
+Summary (full code provided at dispatch time): `render.key_names(sessions)` returns 16 full project names (≤25 chars, `""` = free key). `DeepDeckPad.show(colors, lines, names)` buffers and pushes all three; the firmware stores `names` in a global, scans the 4×4 matrix (rows GPIO 0/4/5/12, cols GPIO 16/15/14/13), and a key press sets `overlay_slot`/`overlay_until` (3 s) and forces a display update; the display lambda renders `key N` + name (or `(free)`) while the overlay is active. Task 12 additionally verifies the key→slot mapping via the overlay.
+
+---
+
 ### Task 12: Hardware bring-up (manual, with Aaron)
 
 **Files:**
 - Modify: possibly `src/agent_monitor/render.py` (KEY_LEDS remap), `tests/test_render.py`
 
 This task needs the physical DeepDeck over USB. Walk through the steps together with Aaron.
+
+> **Bench notes (from firmware review):**
+> 1. **If the board appears dead after plugging in** (no serial output at all): unplug, make sure no key is held down, and re-plug before suspecting the flash. GPIO12 (matrix, MTDI strapping pin) held high at power-on sets the flash voltage wrong and prevents boot entirely — a held key on its row/column can cause this. Property of the DeepDeck PCB, not the firmware.
+> 2. **Verify the key matrix before the daemon is ever involved:** the overlay works standalone (no WiFi/daemon needed) — press all 16 keys and confirm the OLED shows the matching `key N` / `(free)`. If the mapping is transposed or rotated, reorder ONLY the `keys:` string in `firmware/deepdeck.yaml` and reflash (OTA) — do not edit the 16 per-key values (they no longer exist).
+> 3. LED order is verified separately via `agent-monitor test-pattern` (chase); remap `KEY_LEDS` in `render.py` if needed.
 
 - [ ] **Step 1: Fill in secrets**
 
