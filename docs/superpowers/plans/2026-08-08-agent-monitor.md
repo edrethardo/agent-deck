@@ -1552,7 +1552,12 @@ def _run_daemon() -> int:
         except asyncio.CancelledError:
             pass
 
-    asyncio.run(_main())
+    try:
+        asyncio.run(_main())
+    except RuntimeError as exc:
+        # e.g. another daemon already owns the socket — exit cleanly, non-zero
+        logging.error("%s", exc)
+        return 1
     return 0
 
 
