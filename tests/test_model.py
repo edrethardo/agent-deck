@@ -1,0 +1,31 @@
+from agent_monitor.model import Status, status_for_event
+
+
+def test_session_start_is_available():
+    assert status_for_event("SessionStart", None, None) == Status.AVAILABLE
+
+
+def test_user_prompt_submit_is_busy():
+    assert status_for_event("UserPromptSubmit", None, Status.AVAILABLE) == Status.BUSY
+
+
+def test_stop_is_available():
+    assert status_for_event("Stop", None, Status.BUSY) == Status.AVAILABLE
+
+
+def test_permission_notification_is_waiting():
+    msg = "Claude needs your permission to use Bash"
+    assert status_for_event("Notification", msg, Status.BUSY) == Status.WAITING
+
+
+def test_idle_notification_keeps_current_status():
+    msg = "Claude is waiting for your input"
+    assert status_for_event("Notification", msg, Status.AVAILABLE) is None
+
+
+def test_unknown_notification_defaults_to_waiting():
+    assert status_for_event("Notification", "Something else", Status.BUSY) == Status.WAITING
+
+
+def test_unknown_event_returns_none():
+    assert status_for_event("PreCompact", None, Status.BUSY) is None
