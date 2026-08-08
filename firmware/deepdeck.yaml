@@ -33,10 +33,12 @@ api:
       variables:
         colors: int[]
         lines: string[]
+        names: string[]
       then:
         - lambda: |-
             id(led_colors).assign(colors.begin(), colors.end());
             id(oled_lines).assign(lines.begin(), lines.end());
+            id(key_names).assign(names.begin(), names.end());
         - light.turn_on:
             id: key_leds
             brightness: 100%
@@ -55,6 +57,18 @@ globals:
     type: std::vector<std::string>
     restore_value: no
     initial_value: 'std::vector<std::string>{}'
+  - id: key_names
+    type: std::vector<std::string>
+    restore_value: no
+    initial_value: 'std::vector<std::string>(16)'
+  - id: overlay_slot
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: overlay_until
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 light:
   - platform: esp32_rmt_led_strip
@@ -82,6 +96,213 @@ light:
               }
             }
 
+matrix_keypad:
+  id: keypad
+  rows:
+    - pin: GPIO0
+    - pin: GPIO4
+    - pin: GPIO5
+    - pin: GPIO12
+  columns:
+    - pin: GPIO16
+    - pin: GPIO15
+    - pin: GPIO14
+    - pin: GPIO13
+
+binary_sensor:
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_1
+    internal: true
+    row: 0
+    col: 0
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 0;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_2
+    internal: true
+    row: 0
+    col: 1
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 1;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_3
+    internal: true
+    row: 0
+    col: 2
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 2;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_4
+    internal: true
+    row: 0
+    col: 3
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 3;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_5
+    internal: true
+    row: 1
+    col: 0
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 4;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_6
+    internal: true
+    row: 1
+    col: 1
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 5;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_7
+    internal: true
+    row: 1
+    col: 2
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 6;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_8
+    internal: true
+    row: 1
+    col: 3
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 7;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_9
+    internal: true
+    row: 2
+    col: 0
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 8;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_10
+    internal: true
+    row: 2
+    col: 1
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 9;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_11
+    internal: true
+    row: 2
+    col: 2
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 10;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_12
+    internal: true
+    row: 2
+    col: 3
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 11;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_13
+    internal: true
+    row: 3
+    col: 0
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 12;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_14
+    internal: true
+    row: 3
+    col: 1
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 13;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_15
+    internal: true
+    row: 3
+    col: 2
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 14;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+  - platform: matrix_keypad
+    keypad_id: keypad
+    id: key_16
+    internal: true
+    row: 3
+    col: 3
+    on_press:
+      then:
+        - lambda: |-
+            id(overlay_slot) = 15;
+            id(overlay_until) = millis() + 3000;
+        - component.update: oled
+
 i2c:
   sda: GPIO21
   scl: GPIO22
@@ -94,10 +315,20 @@ font:
 
 display:
   - platform: ssd1306_i2c
+    id: oled
     model: "SSD1306 128x64"
     address: 0x3C
     update_interval: 500ms
     lambda: |-
+      if (id(overlay_slot) >= 0 && millis() < id(overlay_until)) {
+        int slot = id(overlay_slot);
+        char header[16];
+        snprintf(header, sizeof(header), "key %d", slot + 1);
+        it.print(0, 0, id(font8), header);
+        std::string name = (slot < (int) id(key_names).size()) ? id(key_names)[slot] : std::string();
+        it.print(0, 16, id(font8), name.empty() ? "(free)" : name.c_str());
+        return;
+      }
       if (id(oled_lines).empty()) {
         it.print(0, 0, id(font8), "waiting for daemon");
       }

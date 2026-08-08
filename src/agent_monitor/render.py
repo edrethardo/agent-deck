@@ -50,3 +50,16 @@ def oled_lines(sessions: list[Session]) -> list[str]:
         name = project_name(sess.cwd)[:12]
         lines.append(f"{sess.slot + 1:>2} {name:<12} {STATUS_CHAR[sess.status]}")
     return lines[:MAX_OLED_LINES]
+
+
+MAX_NAME_LEN = 25  # OLED fits ~25 chars of the size-8 mono font per line
+
+
+def key_names(sessions: list[Session]) -> list[str]:
+    """Full project name per key slot (16 entries, "" = key free)."""
+    out = [""] * NUM_KEY_LEDS
+    for sess in sessions:
+        if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
+            continue
+        out[sess.slot] = project_name(sess.cwd)[:MAX_NAME_LEN]
+    return out

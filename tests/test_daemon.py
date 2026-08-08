@@ -14,8 +14,8 @@ class FakePad:
     async def run(self):
         await asyncio.Event().wait()
 
-    async def show(self, colors, lines):
-        self.shows.append((colors, lines))
+    async def show(self, colors, lines, names):
+        self.shows.append((colors, lines, names))
 
 
 @pytest.fixture
@@ -55,9 +55,10 @@ async def test_event_updates_state_file_and_pad(paths):
     state = json.loads(state_path.read_text())
     assert state["sessions"][0]["session_id"] == "a"
     assert state["sessions"][0]["status"] == "available"
-    colors, lines = pad.shows[-1]
+    colors, lines, names = pad.shows[-1]
     assert colors[1] > 0  # slot 0 lights up green
     assert lines == [" 1 x            +"]
+    assert names[0] == "x"
     await _stop(task)
 
 

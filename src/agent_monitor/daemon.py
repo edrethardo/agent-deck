@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from .render import led_colors, oled_lines
+from .render import key_names, led_colors, oled_lines
 from .state import SessionRegistry
 
 _LOGGER = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ class Daemon:
             tmp.write_text(json.dumps(payload))
             os.replace(tmp, self._state_path)
             if self._pad is not None:
-                await self._pad.show(led_colors(sessions), oled_lines(sessions))
+                await self._pad.show(led_colors(sessions), oled_lines(sessions), key_names(sessions))
 
     async def _prune_loop(self) -> None:
         while True:
