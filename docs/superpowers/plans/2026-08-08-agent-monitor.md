@@ -866,7 +866,9 @@ git commit -m "feat: hook client — stdin JSON to daemon socket, fault-tolerant
 - Create: `src/agent_monitor/pad.py`
 - Test: `tests/test_pad.py`
 
-**Background for the implementer:** `aioesphomeapi.APIClient` speaks the ESPHome native API. Relevant methods: `await client.connect(login=True, on_stop=cb)` (cb is an async callable `(expected_disconnect: bool) -> None`, called on connection loss), `await client.list_entities_services()` → `(entities, services)`, `client.execute_service(service, {...})` (synchronous, fire-and-forget), `await client.disconnect()`. We inject a `client_factory` so tests run without a network.
+**Background for the implementer:** `aioesphomeapi.APIClient` speaks the ESPHome native API. Relevant methods: `await client.connect(login=True, on_stop=cb)` (cb is an async callable `(expected_disconnect: bool) -> None`, called on connection loss), `await client.list_entities_services()` → `(entities, services)`, `client.execute_service(service, {...})`, `await client.disconnect()`. We inject a `client_factory` so tests run without a network.
+
+> **DEVIATION (applied during implementation):** the installed aioesphomeapi 45.7.0 made `execute_service` **async**; the plan below originally assumed it was synchronous. The committed code therefore awaits its result when awaitable (`inspect.isawaitable`), the test fake's `execute_service` is `async def`, and `pyproject.toml` pins `aioesphomeapi>=45,<46`. The code blocks below are otherwise authoritative.
 
 - [ ] **Step 1: Write failing tests**
 
