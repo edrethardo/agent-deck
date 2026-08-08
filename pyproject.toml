@@ -2,7 +2,7 @@
 name = "agent-monitor"
 version = "0.1.0"
 description = "Traffic-light status for Claude Code sessions on a DeepDeck + CLI"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "aioesphomeapi>=45,<46",
     "rich>=13",
