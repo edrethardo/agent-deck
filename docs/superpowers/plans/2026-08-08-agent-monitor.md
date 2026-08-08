@@ -868,7 +868,9 @@ git commit -m "feat: hook client — stdin JSON to daemon socket, fault-tolerant
 
 **Background for the implementer:** `aioesphomeapi.APIClient` speaks the ESPHome native API. Relevant methods: `await client.connect(login=True, on_stop=cb)` (cb is an async callable `(expected_disconnect: bool) -> None`, called on connection loss), `await client.list_entities_services()` → `(entities, services)`, `client.execute_service(service, {...})`, `await client.disconnect()`. We inject a `client_factory` so tests run without a network.
 
-> **DEVIATION (applied during implementation):** the installed aioesphomeapi 45.7.0 made `execute_service` **async**; the plan below originally assumed it was synchronous. The committed code therefore awaits its result when awaitable (`inspect.isawaitable`), the test fake's `execute_service` is `async def`, and `pyproject.toml` pins `aioesphomeapi>=45,<46`. The code blocks below are otherwise authoritative.
+> **DEVIATION (applied during implementation):** the installed aioesphomeapi 45.7.0 made `execute_service` **async**; the plan below originally assumed it was synchronous. The committed code therefore awaits its result when awaitable (`inspect.isawaitable`), the test fake's `execute_service` is `async def`, and `pyproject.toml` pins `aioesphomeapi>=45,<46`.
+>
+> **HARDENING (from code review, commit 4edbffc):** `run()` additionally clears `_connected`/`_client`/`_service` inside `_on_stop` (so an outage buffers instead of pushing to a dead client), creates the client inside the `try`, connects with `log_errors=False` and logs only the first failure of an outage at WARNING (rest DEBUG), uses capped exponential backoff (`min(delay*2, 60)`, reset on success), validates the `set_state` service's argument names at discovery, and bounds `disconnect()` with a 2 s timeout. `tests/test_pad.py` gained five failure-path tests. The code blocks below are otherwise authoritative.
 
 - [ ] **Step 1: Write failing tests**
 
