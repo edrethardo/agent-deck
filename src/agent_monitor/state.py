@@ -46,13 +46,14 @@ class SessionRegistry:
                 cwd=cwd,
                 pid=pid,
                 status=status,
-                slot=twin.slot if twin is not None else self._free_slot(),
+                slot=twin.slot if twin is not None and twin.slot is not None
+                else self._claim_slot_for_real(),
                 since=now,
             )
             return True
 
         sess.cwd = cwd or sess.cwd
-        sess.pid = pid or sess.pid
+        sess.pid = pid if pid > 1 else sess.pid
         new = status_for_event(event, message, sess.status)
         if new is None or new == sess.status:
             return False
@@ -81,6 +82,19 @@ class SessionRegistry:
             del self._sessions[sid]
         promoted = self._promote_overflow()
         return bool(dead) or promoted
+
+    def _claim_slot_for_real(self) -> int | None:
+        """Free slot, or evict the newest scanned (UNKNOWN) session to overflow."""
+        slot = self._free_slot()
+        if slot is not None:
+            return slot
+        unknowns = [s for s in self._sessions.values()
+                    if s.status is Status.UNKNOWN and s.slot is not None]
+        if not unknowns:
+            return None
+        victim = max(unknowns, key=lambda s: s.since)
+        slot, victim.slot = victim.slot, None
+        return slot
 
     def _free_slot(self) -> int | None:
         used = {s.slot for s in self._sessions.values() if s.slot is not None}

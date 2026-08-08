@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-_MAX_WALK = 15
+_MAX_WALK = 40
 
 
 def _iter_pids() -> list[int]:
@@ -43,8 +43,16 @@ def _cwd(pid: int) -> str | None:
 
 
 def looks_like_claude(argv: list[str]) -> bool:
-    """True if the first argv entries point at the claude binary/CLI."""
-    return any("claude" in part.lower() for part in argv[:2])
+    """True if argv points at the claude binary/CLI (not merely mentions it)."""
+    if not argv:
+        return False
+    exe = os.path.basename(argv[0])
+    if exe == "claude":
+        return True
+    if len(argv) > 1 and exe.split("-")[0] in ("node", "bun", "deno", "python3", "python"):
+        a1 = argv[1].lower()
+        return "claude" in a1 and os.path.basename(a1) in ("cli.js", "claude")
+    return False
 
 
 def claude_ancestor_pid(start_pid: int) -> int:
@@ -65,11 +73,10 @@ def claude_ancestor_pid(start_pid: int) -> int:
 
 
 def claude_processes() -> dict[int, str]:
-    """PID -> cwd for leaf-most running claude processes of this user.
+    """PID -> cwd for top-most running claude processes of this user.
 
-    Leaf-most: an entry whose descendant also matches is dropped (the VS Code
-    extension host contains "claude" in its extension path but the per-session
-    CLI child is the process we want).
+    A match whose ancestor also matches is dropped (e.g. a `claude -p` child
+    spawned by an interactive session).
     """
     matches: dict[int, str] = {}
     for pid in _iter_pids():
@@ -88,6 +95,7 @@ def claude_processes() -> dict[int, str]:
             if anc <= 1:
                 break
             if anc in matches:
-                result.pop(anc, None)
+                result.pop(pid, None)  # child of another claude — keep the outermost
+                break
             anc = _ppid(anc)
     return result

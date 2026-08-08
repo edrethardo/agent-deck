@@ -25,11 +25,17 @@ def main() -> int:
         signal.signal(signal.SIGALRM, _timed_out)
         signal.alarm(TOTAL_TIMEOUT)
         data = json.loads(sys.stdin.read())
+        try:
+            pid = claude_ancestor_pid(os.getppid())
+        except Exception:
+            pid = os.getppid()
+        if pid <= 1:
+            pid = 0  # unknown parent — never report PID 1/0 as a session process
         payload = {
             "event": data.get("hook_event_name"),
             "session_id": data.get("session_id"),
             "cwd": data.get("cwd", ""),
-            "pid": claude_ancestor_pid(os.getppid()),  # nearest claude ancestor — the wrapper parent may be short-lived
+            "pid": pid,
             "message": data.get("message"),
         }
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:

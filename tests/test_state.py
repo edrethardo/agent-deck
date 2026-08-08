@@ -143,3 +143,27 @@ def test_real_event_takes_over_scanned_slot():
     assert reg.by_id("proc-777") is None
     assert reg.by_id("real-id").slot == 0
     assert reg.by_id("proc-888").slot == 1
+
+
+def test_low_pid_event_does_not_overwrite_good_pid():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=4321)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 1, None, 2.0)
+    assert reg.by_id("a").pid == 4321
+
+
+def test_takeover_from_overflow_twin_claims_free_slot():
+    reg = SessionRegistry()
+    reg.add_scanned(777, "/p/x", 1.0)
+    reg.by_id("proc-777").slot = None  # simulate an overflow twin
+    reg.apply_event("SessionStart", "real", "/p/x", 777, None, 2.0)
+    assert reg.by_id("real").slot == 0
+
+
+def test_real_session_evicts_newest_scanned_when_full():
+    reg = SessionRegistry()
+    for i in range(16):
+        reg.add_scanned(1000 + i, f"/p/{i}", float(i))
+    reg.apply_event("SessionStart", "real", "/p/real", 5, None, 99.0)
+    assert reg.by_id("real").slot == 15
+    assert reg.by_id("proc-1015").slot is None
