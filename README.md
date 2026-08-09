@@ -4,10 +4,10 @@
 
 Run half a dozen Claude Code sessions in parallel and you lose track of which one is working, which one finished, and which one has been silently waiting ten minutes for you to approve a command. agent-deck puts every session on its own key of a WiFi macropad sitting on your desk:
 
-- 🟢 **green** — session is idle and available
+- 🔵 **blue** — session is idle and **remote-controllable**: pick it up from your phone
+- ⚪ **white** — session is idle but only reachable at the PC (includes sessions from before the hooks were installed — reload those to get live status)
 - 🟡 **yellow** — Claude is working
 - 🔴 **red** — Claude is **blocked waiting for your input** (permission prompt, question, plan approval)
-- 🔵 **blue** — session detected, but it started before the hooks were installed (reload it to get live status)
 
 The OLED shows a kraken until you need it. Press a key to see which project lives there; double-press to **jump straight to that session's window** on your desktop; hold a key to rearrange the board; the left knob dims the LEDs.
 
@@ -102,7 +102,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 
 ## Troubleshooting
 
-- **A key stays blue although the session is active** — that session started before the hooks existed. Reload its VS Code window (`Ctrl+Shift+P` → *Developer: Reload Window*); the conversation is kept, tracking starts immediately.
+- **A key never changes from white although the session is active** — that session started before the hooks existed. Reload its VS Code window (`Ctrl+Shift+P` → *Developer: Reload Window*); the conversation is kept, tracking starts immediately.
 - **`pad firmware mismatch` in `journalctl --user -u agent-monitor`** — reflash OTA and restart the daemon (see version coupling above).
 - **Double-press does nothing** — is `wmctrl` installed? Does `systemctl --user show-environment` contain `DISPLAY`? Check the journal for `focus request` lines.
 - **More than 16 sessions** — extras get no key (overflow) but stay visible in the CLI; real sessions evict blue scanned entries when keys run short.

@@ -11,12 +11,22 @@ KEY_LEDS = list(range(NUM_KEY_LEDS))
 BRIGHTNESS = 0.4
 MAX_OLED_LINES = 8
 
+# Active states keep fixed colors; the idle color encodes reachability:
+# blue = idle and remote-controllable (grab it from your phone),
+# white = idle but only reachable at the PC (incl. pre-hook sessions).
 COLORS: dict[Status, tuple[int, int, int]] = {
-    Status.AVAILABLE: (0, 255, 0),
     Status.BUSY: (255, 160, 0),
     Status.WAITING: (255, 0, 0),
-    Status.UNKNOWN: (0, 0, 255),  # blue — orange variants were tried and reverted  # Claude orange #D97757
 }
+IDLE_REMOTE_COLOR = (0, 0, 255)
+IDLE_LOCAL_COLOR = (255, 255, 255)
+
+
+def _color_for(sess: Session) -> tuple[int, int, int]:
+    fixed = COLORS.get(sess.status)
+    if fixed is not None:
+        return fixed
+    return IDLE_REMOTE_COLOR if sess.remote else IDLE_LOCAL_COLOR
 STATUS_CHAR: dict[Status, str] = {
     Status.AVAILABLE: "+",
     Status.BUSY: "~",
@@ -31,7 +41,7 @@ def led_colors(sessions: list[Session]) -> list[int]:
         if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
             continue
         led = KEY_LEDS[sess.slot]
-        r, g, b = COLORS[sess.status]
+        r, g, b = _color_for(sess)
         out[led * 3 : led * 3 + 3] = [
             int(r * BRIGHTNESS),
             int(g * BRIGHTNESS),

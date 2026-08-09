@@ -11,10 +11,18 @@ def test_empty_registry_is_all_dark():
     assert oled_lines([]) == []
 
 
-def test_available_session_lights_green():
+def test_idle_local_session_lights_white():
     colors = led_colors([_sess(0)])
-    assert colors[0:3] == [0, int(255 * BRIGHTNESS), 0]
+    w = int(255 * BRIGHTNESS)
+    assert colors[0:3] == [w, w, w]
     assert colors[3:] == [0] * (NUM_KEY_LEDS * 3 - 3)
+
+
+def test_idle_remote_session_lights_blue():
+    sess = _sess(0)
+    sess.remote = True
+    colors = led_colors([sess])
+    assert colors[0:3] == [0, 0, int(255 * BRIGHTNESS)]
 
 
 def test_waiting_session_lights_red_on_its_slot():
@@ -49,9 +57,10 @@ def test_out_of_range_slot_is_skipped():
     assert oled_lines([_sess(16)]) == []
 
 
-def test_unknown_session_lights_blue_with_question_mark():
+def test_unknown_session_lights_white_when_not_remote():
     colors = led_colors([_sess(0, Status.UNKNOWN)])
-    assert colors[0:3] == [0, 0, int(255 * BRIGHTNESS)]
+    w = int(255 * BRIGHTNESS)
+    assert colors[0:3] == [w, w, w]
     (line,) = oled_lines([_sess(0, Status.UNKNOWN)])
     assert line == " 1 myproj       ?"
 
