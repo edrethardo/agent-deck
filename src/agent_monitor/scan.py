@@ -122,6 +122,29 @@ def _socket_inodes(pid: int) -> set[str]:
 # 2607:6bc0::/32 (Anthropic) — first 128-bit word of /proc/net/tcp6 addresses
 # is stored as a little-endian 32-bit word: 26 07 6b c0 -> "c06b0726".
 ANTHROPIC_V6_FIRST_WORD = "c06b0726"
+# 160.79.0.0/16 (Anthropic IPv4) — relay and API share the same edge IPs, so
+# IPv4 cannot distinguish them; any persistent connection counts (see
+# has_remote_control docstring).
+ANTHROPIC_V4_PREFIX = "160.79."
+
+
+def _established_v4_remotes(inodes: set[str], tcp_path: str = "/proc/net/tcp") -> list[str]:
+    """Remote IPv4 addresses of ESTABLISHED sockets owned by `inodes`."""
+    ips = []
+    try:
+        lines = Path(tcp_path).read_text().splitlines()[1:]
+    except OSError:
+        return ips
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 10 or parts[3] != "01":  # 01 = ESTABLISHED
+            continue
+        if parts[9] not in inodes:
+            continue
+        hex_ip = parts[2].split(":")[0]
+        if len(hex_ip) == 8:
+            ips.append(".".join(str(int(hex_ip[i:i + 2], 16)) for i in (6, 4, 2, 0)))
+    return ips
 
 
 def _established_v6_first_words(inodes: set[str], tcp6_path: str = "/proc/net/tcp6") -> list[str]:
@@ -144,11 +167,18 @@ def _established_v6_first_words(inodes: set[str], tcp6_path: str = "/proc/net/tc
 
 
 def has_remote_control(pid: int) -> bool:
-    """True if the process holds an established IPv6 connection into
-    2607:6bc0::/32 — the remote-control relay. Plain API keep-alives use
-    IPv4 (160.79.x) and survive a remote-control OFF toggle, so IPv4 is
-    deliberately NOT counted (verified empirically 2026-08-09)."""
+    """True if the process holds any established connection into Anthropic's
+    network (IPv4 160.79.0.0/16 or IPv6 2607:6bc0::/32).
+
+    The relay shares Anthropic's edge IPs with the API and connects over
+    either address family, so it cannot be singled out by address (verified
+    empirically 2026-08-09: relays observed on both families, all terminating
+    at api.anthropic.com's IP). Any persistent connection therefore counts.
+    Exactness for toggles comes from the pad-menu pin (rc_manual), not from
+    this heuristic; an in-session manual off-toggle shows only after restart."""
     inodes = _socket_inodes(pid)
     if not inodes:
         return False
-    return ANTHROPIC_V6_FIRST_WORD in _established_v6_first_words(inodes)
+    if ANTHROPIC_V6_FIRST_WORD in _established_v6_first_words(inodes):
+        return True
+    return any(ip.startswith(ANTHROPIC_V4_PREFIX) for ip in _established_v4_remotes(inodes))

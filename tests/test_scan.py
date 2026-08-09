@@ -70,3 +70,15 @@ def test_established_v6_words_ignore_non_established_and_other_inodes(tmp_path):
 
 def test_has_remote_control_false_for_dead_pid():
     assert scan.has_remote_control(999999999) is False
+
+
+def test_established_v4_remotes_parse(tmp_path):
+    content = (
+        "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        "   0: 0100007F:1F90 0A684FA0:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 111\n"
+    )
+    p = tmp_path / "tcp"
+    p.write_text(content)
+    # 0A684FA0 little-endian -> 160.79.104.10
+    assert scan._established_v4_remotes({"111"}, tcp_path=str(p)) == ["160.79.104.10"]
+    assert scan._established_v4_remotes({"999"}, tcp_path=str(p)) == []
