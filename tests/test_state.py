@@ -277,3 +277,46 @@ def test_update_context_adopts_question_flag():
     assert reg.sessions()[0].question is True
     assert reg.update_context({5: ContextInfo(10, "fable-5", "high", question=False)}) is True
     assert reg.sessions()[0].question is False
+
+
+def test_post_stop_activity_flips_available_back_to_busy():
+    from agent_monitor.context import ContextInfo
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)  # finished -> green
+    (s,) = reg.sessions()
+    assert (s.status, s.finished) == (Status.AVAILABLE, True)
+    # transcript written AFTER the Stop and recently: autonomous continuation
+    info = ContextInfo(10, "fable-5", "high", activity=110.0)
+    assert reg.update_context({5: info}, now=115.0) is True
+    assert (s.status, s.finished, s.since) == (Status.BUSY, False, 110.0)
+
+
+def test_stale_or_pre_stop_activity_does_not_flip():
+    from agent_monitor.context import ContextInfo
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)
+    (s,) = reg.sessions()
+    # activity BEFORE the Stop: the turn that just ended — stays green
+    reg.update_context({5: ContextInfo(10, "fable-5", "high", activity=99.0)}, now=105.0)
+    assert s.status is Status.AVAILABLE
+    # activity after the Stop but long ago (daemon restart case) — stays green
+    reg.update_context({5: ContextInfo(10, "fable-5", "high", activity=110.0)}, now=500.0)
+    assert s.status is Status.AVAILABLE
+
+
+def test_activity_never_downgrades_waiting():
+    from agent_monitor.context import ContextInfo
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("PermissionRequest", "a", "/proj/a", 5, None, 100.0)
+    (s,) = reg.sessions()
+    reg.update_context({5: ContextInfo(10, "fable-5", "high", activity=110.0)}, now=112.0)
+    assert s.status is Status.WAITING

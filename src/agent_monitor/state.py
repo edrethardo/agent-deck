@@ -153,7 +153,9 @@ class SessionRegistry:
                     changed = True
         return changed
 
-    def update_context(self, infos: dict[int, "ContextInfo | None"]) -> bool:
+    ACTIVITY_WINDOW_S = 30.0  # only a RECENT post-Stop write proves live work
+
+    def update_context(self, infos: dict[int, "ContextInfo | None"], now: float | None = None) -> bool:
         """Adopt per-PID context info. True if anything changed.
 
         A None/missing entry keeps the last known values — a transcript
@@ -166,6 +168,18 @@ class SessionRegistry:
             new = (info.percent, info.model, info.effort, info.question)
             if (sess.context_pct, sess.model, sess.effort, sess.question) != new:
                 sess.context_pct, sess.model, sess.effort, sess.question = new
+                changed = True
+            if (sess.status is Status.AVAILABLE
+                    and now is not None
+                    and info.activity > sess.since + 2.0
+                    and now - info.activity < self.ACTIVITY_WINDOW_S):
+                # Written AFTER the Stop that made it green: an autonomous
+                # re-invocation or a background subagent is working — no
+                # UserPromptSubmit ever fires for those. The next real Stop
+                # turns it back green.
+                sess.status = Status.BUSY
+                sess.since = info.activity
+                sess.finished = False
                 changed = True
         return changed
 

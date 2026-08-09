@@ -319,3 +319,26 @@ def test_interrupted_question_not_pending(tmp_path):
         "role": "user", "content": "[Request interrupted by user]"}},)
     path = _write_transcript(tmp_path, "-p", "s", _ask(tail_extra=extra))
     assert context.read_context(path).question is False
+
+
+def test_session_activity_covers_subagent_files(tmp_path):
+    import os
+    _write_session(tmp_path, 7, "sid", "/home/x/p")
+    path = _write_transcript(tmp_path, "-home-x-p", "sid", [_assistant(1, 10, 0)])
+    os.utime(path, (1000.0, 1000.0))
+    assert context.session_activity(path) == 1000.0
+    sub = path.parent / "sid" / "subagents"
+    sub.mkdir(parents=True)
+    agent = sub / "agent-abc.jsonl"
+    agent.write_text("{}\n")
+    os.utime(agent, (2000.0, 2000.0))
+    assert context.session_activity(path) == 2000.0
+    assert context.session_activity(tmp_path / "nope.jsonl") == 0.0
+
+
+def test_session_context_attaches_activity(tmp_path):
+    import os
+    _write_session(tmp_path, 7, "sid", "/home/x/p")
+    path = _write_transcript(tmp_path, "-home-x-p", "sid", [_assistant(1, 10, 0)])
+    os.utime(path, (1234.0, 1234.0))
+    assert context.session_context(7, claude_dir=tmp_path).activity == 1234.0

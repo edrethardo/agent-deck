@@ -4,6 +4,7 @@ and the usage cache in ~/.claude.json). Read-only — nothing here writes."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -34,6 +35,9 @@ class ContextInfo:
     model: str    # short display form, e.g. "fable-5"
     effort: str   # reasoning effort, "" if not recorded
     question: bool = False  # an AskUserQuestion/plan approval awaits the user
+    activity: float = 0.0   # newest mtime of transcript + subagent files —
+    #                         autonomous re-invocations and background agents
+    #                         fire no UserPromptSubmit, only the files move
 
 
 # Tools that block on USER input by design — an unresolved call at the tail of
@@ -154,11 +158,29 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
     )
 
 
+def session_activity(path: Path) -> float:
+    """Newest write anywhere in the session: main transcript or the
+    subagents' files under <project>/<session_id>/subagents/."""
+    try:
+        latest = path.stat().st_mtime
+    except OSError:
+        return 0.0
+    for sub in (path.parent / path.stem / "subagents").glob("agent-*.jsonl"):
+        try:
+            latest = max(latest, sub.stat().st_mtime)
+        except OSError:
+            continue
+    return latest
+
+
 def session_context(pid: int, claude_dir: Path | None = None) -> ContextInfo | None:
     path = transcript_path(pid, claude_dir)
     if path is None:
         return None
-    return read_context(path, large_for=settings_large_model(claude_dir))
+    info = read_context(path, large_for=settings_large_model(claude_dir))
+    if info is None:
+        return None
+    return dataclasses.replace(info, activity=session_activity(path))
 
 
 def _parse_utilization(util: dict, now: datetime) -> list[UsageLimit]:

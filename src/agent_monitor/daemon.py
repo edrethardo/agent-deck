@@ -294,7 +294,7 @@ class Daemon:
                         for s in self._registry.sessions()
                         if s.pid > 1
                     }
-                    changed |= self._registry.update_context(infos)
+                    changed |= self._registry.update_context(infos, self._time_fn())
                 if self._usage_fn is not None:
                     usage = await asyncio.to_thread(self._usage_fn)
                     if usage != self._usage:
