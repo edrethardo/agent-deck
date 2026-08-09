@@ -41,6 +41,7 @@ class Daemon:
         scan_fn: Callable[[], dict[int, str]] | None = None,
         scan_interval: float = 20.0,
         rc_fn: Callable[[int], bool] | None = None,
+        rc_interval: float = 5.0,
     ):
         self._registry = registry
         self._pad = pad
@@ -52,6 +53,7 @@ class Daemon:
         self._scan_fn = scan_fn
         self._scan_interval = scan_interval
         self._rc_fn = rc_fn
+        self._rc_interval = rc_interval
         self._refresh_lock = asyncio.Lock()
         self.ready = asyncio.Event()
 
@@ -105,6 +107,8 @@ class Daemon:
             tasks.append(asyncio.create_task(self._pad.run()))
         if self._scan_fn is not None:
             tasks.append(asyncio.create_task(self._scan_loop()))
+        if self._rc_fn is not None:
+            tasks.append(asyncio.create_task(self._rc_loop()))
         for task in tasks:
             task.add_done_callback(_log_if_died)
         self.ready.set()
@@ -209,13 +213,22 @@ class Daemon:
                 changed = False
                 for pid, cwd in self._scan_fn().items():
                     changed |= self._registry.add_scanned(pid, cwd, self._time_fn())
-                if self._rc_fn is not None:
-                    changed |= self._registry.update_remote_flags(self._rc_fn)
                 if changed:
                     await self._refresh()
             except Exception:
                 _LOGGER.exception("scan tick failed")
             await asyncio.sleep(self._scan_interval)
+
+    async def _rc_loop(self) -> None:
+        # Own fast cadence: remote-control toggles should show within seconds,
+        # not within the (slower) process-scan tick.
+        while True:
+            try:
+                if self._registry.update_remote_flags(self._rc_fn):
+                    await self._refresh()
+            except Exception:
+                _LOGGER.exception("rc tick failed")
+            await asyncio.sleep(self._rc_interval)
 
 
 def _log_if_died(task: asyncio.Task) -> None:

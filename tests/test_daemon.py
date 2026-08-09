@@ -176,6 +176,23 @@ async def test_second_daemon_refuses_to_steal_live_socket(paths):
     await _stop(t1)
 
 
+async def test_rc_loop_updates_flags_quickly(paths):
+    state_path, sock_path = paths
+    rc = {"value": True}
+    daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True,
+                    rc_fn=lambda pid: rc["value"], rc_interval=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event())
+    await asyncio.sleep(0.1)
+    assert json.loads(state_path.read_text())["sessions"][0]["remote"] is True
+    rc["value"] = False
+    await asyncio.sleep(0.15)
+    assert json.loads(state_path.read_text())["sessions"][0]["remote"] is False
+    await _stop(task)
+
+
 async def test_scan_loop_adds_unknown_sessions(paths):
     state_path, sock_path = paths
     daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
