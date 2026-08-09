@@ -1,4 +1,6 @@
-# [DRAFT — not filed] Expose remote-control state in session metadata (and a small session IPC)
+# [FILED 2026-08-09 as anthropics/claude-code#85304] Expose remote-control state in session metadata (and a small session IPC)
+
+Tracking: https://github.com/anthropics/claude-code/issues/85304
 
 **Repo:** anthropics/claude-code
 **Title:** Feature request: `remoteControl` field in `~/.claude/sessions/<pid>.json` (+ optional command IPC)
