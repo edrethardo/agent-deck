@@ -51,13 +51,22 @@ Sessions started before this point show as blue until you reload their window (h
 
 ### 2. Firmware (first flash over USB, afterwards OTA)
 
+The WiFi credentials are baked into the firmware at flash time — the pad joins your network by itself on every boot, no pairing or app involved:
+
 ```bash
 cp firmware/secrets.yaml.example firmware/secrets.yaml
-# edit firmware/secrets.yaml: WiFi credentials + fresh keys (openssl rand -base64 32)
+# edit firmware/secrets.yaml:
+#   wifi_ssid / wifi_password — must be a 2.4 GHz network (ESP32 has no 5 GHz);
+#                               the PC only needs to reach the pad over the LAN,
+#                               it does not need WiFi itself
+#   api_key  — openssl rand -base64 32 (reused in config.toml below)
+#   ota_password — any secret; protects over-the-air updates
 uvx esphome run firmware/deepdeck.yaml        # pick the /dev/ttyUSB0 port
 ```
 
-Later updates need no cable: `uvx esphome run firmware/deepdeck.yaml --device deepdeck.local`.
+Watch the log after flashing: `WiFi Connected` plus the pad's IP address confirm it's online, and from then on it's reachable as `deepdeck.local` (mDNS). If your router doesn't resolve mDNS, use the IP from the flash log (or your router's client list) as `host` in step 3 — ideally with a DHCP reservation so it stays put.
+
+**Wrong WiFi credentials?** There is no fallback hotspot/captive portal — fix `secrets.yaml` and flash again over USB. Once the pad is on WiFi, every later update works without the cable: `uvx esphome run firmware/deepdeck.yaml --device deepdeck.local`. After that first flash the pad can live anywhere on your network, powered by any USB charger.
 
 > ⚠️ If the board looks completely dead after plugging in, unplug, make sure no key is held down, and re-plug. A held key on GPIO12 (an ESP32 strapping pin) can prevent booting entirely — a property of the PCB, not of this firmware.
 
@@ -104,6 +113,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 
 ## Troubleshooting
 
+- **`deepdeck.local` doesn't resolve / pad unreachable** — confirm the pad joined WiFi (LEDs/OLED alive after power-up); check your router's client list for its IP and use that as `host` in `config.toml`; make sure PC and pad are on the same LAN (guest WiFi networks often isolate clients). The daemon reconnects automatically and logs `pad connection failed` once per outage.
 - **A key never changes from white although the session is active** — that session started before the hooks existed. Reload its VS Code window (`Ctrl+Shift+P` → *Developer: Reload Window*); the conversation is kept, tracking starts immediately.
 - **`pad firmware mismatch` in `journalctl --user -u agent-monitor`** — reflash OTA and restart the daemon (see version coupling above).
 - **Double-press does nothing** — is `wmctrl` installed? Does `systemctl --user show-environment` contain `DISPLAY`? Check the journal for `focus request` lines.
