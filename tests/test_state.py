@@ -239,3 +239,14 @@ def test_scan_rediscovery_reclaims_projects_key():
     reg.prune(lambda pid: pid == 100)      # b's process died
     assert reg.add_scanned(300, "/proj/b", 5.0) is True
     assert reg.by_id("proc-300").slot == 6  # rediscovery lands on b's old key
+
+
+def test_manual_rc_flag_pins_against_detection():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=100)
+    reg.update_remote_flags(lambda pid: True)
+    assert reg.by_id("a").remote is True
+    assert reg.set_remote_manual(0, False) is True   # pad toggled it off
+    assert reg.by_id("a").remote is False
+    reg.update_remote_flags(lambda pid: True)         # lingering relay socket
+    assert reg.by_id("a").remote is False             # manual value wins

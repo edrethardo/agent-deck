@@ -21,6 +21,9 @@ class Session:
     since: float
     remote: bool = False
     finished: bool = False  # last transition to AVAILABLE came from a Stop (renders green)
+    rc_manual: bool = False  # remote flag was set by a pad toggle — detection can't
+    #                          see in-process off-toggles, so the manual value wins
+    #                          until the session restarts
 
     def to_dict(self) -> dict:
         return {
@@ -32,6 +35,7 @@ class Session:
             "since": self.since,
             "remote": self.remote,
             "finished": self.finished,
+            "rc_manual": self.rc_manual,
         }
 
     @classmethod
@@ -45,6 +49,7 @@ class Session:
             since=float(d.get("since", 0.0)),
             remote=bool(d.get("remote", False)),
             finished=bool(d.get("finished", False)),
+            rc_manual=bool(d.get("rc_manual", False)),
         )
 
 

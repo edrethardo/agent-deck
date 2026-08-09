@@ -73,7 +73,7 @@ class Daemon:
         """Run a pad menu action for the session on `slot`."""
         for sess in self._registry.sessions():
             if sess.slot == slot:
-                asyncio.get_event_loop().create_task(self._run_action(sess.cwd, option))
+                asyncio.get_event_loop().create_task(self._run_action(sess, option))
                 return
 
     async def _focus(self, cwd: str) -> None:
@@ -81,11 +81,16 @@ class Daemon:
         ok = await asyncio.to_thread(focus_window, cwd)
         _LOGGER.info("focus request for %s -> %s", cwd, "ok" if ok else "no match")
 
-    async def _run_action(self, cwd: str, option: int) -> None:
+    async def _run_action(self, sess, option: int) -> None:
         from .actions import restart_session, toggle_remote_control
         fn = restart_session if option == 0 else toggle_remote_control
-        ok = await asyncio.to_thread(fn, cwd)
-        _LOGGER.info("pad action %s for %s -> %s", fn.__name__, cwd, "ok" if ok else "failed")
+        ok = await asyncio.to_thread(fn, sess.cwd)
+        _LOGGER.info("pad action %s for %s -> %s", fn.__name__, sess.cwd, "ok" if ok else "failed")
+        if ok and option == 1 and sess.slot is not None:
+            # We initiated this toggle, so we KNOW the new state — detection
+            # cannot see in-process off-toggles (the relay socket lingers).
+            self._registry.set_remote_manual(sess.slot, not sess.remote)
+            await self._refresh()
 
     async def run(self) -> None:
         if self._socket_path.exists():

@@ -139,15 +139,28 @@ class SessionRegistry:
         return True
 
     def update_remote_flags(self, has_rc: Callable[[int], bool]) -> bool:
-        """Refresh each session's remote-control flag. True if any changed."""
+        """Refresh each session's remote-control flag. True if any changed.
+
+        Sessions with a manual (pad-toggled) flag are skipped: the relay
+        connection lingers after an in-process off-toggle, so detection
+        would wrongly overwrite the known state."""
         changed = False
         for sess in self._sessions.values():
-            if sess.pid > 1:
+            if sess.pid > 1 and not sess.rc_manual:
                 flag = has_rc(sess.pid)
                 if flag != sess.remote:
                     sess.remote = flag
                     changed = True
         return changed
+
+    def set_remote_manual(self, slot: int, value: bool) -> bool:
+        """Pin a session's remote flag after a pad-initiated toggle."""
+        for sess in self._sessions.values():
+            if sess.slot == slot:
+                sess.remote = value
+                sess.rc_manual = True
+                return True
+        return False
 
     def prune(self, pid_alive: Callable[[int], bool]) -> bool:
         """Remove sessions whose process is dead. True if anything changed."""
