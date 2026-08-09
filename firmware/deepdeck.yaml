@@ -90,6 +90,10 @@ globals:
     type: int
     restore_value: yes
     initial_value: '0'
+  - id: notif_mode
+    type: int
+    restore_value: yes
+    initial_value: '0'  # 0 = usage traffic light, 1 = manual color
   - id: setting_mode
     type: int
     restore_value: no
@@ -196,25 +200,24 @@ light:
           name: usage_warning
           update_interval: 500ms
           lambda: |-
-            // User-chosen static accent color (right-knob settings), overridden
-            // by the account-usage warning: amber from 75 %, red from 90 % of
-            // the 5h limit (usage_pcts[0]). No animation on purpose.
+            // Two modes (right-knob rotation toggles): usage traffic light —
+            // green relaxed, amber >= 75 %, red >= 90 % of the 5h limit, dark
+            // when unknown — or the manually chosen static color. Brightness 0
+            // means OFF in both modes, warning included. No animation.
             static const uint8_t PAL[11][3] = {
               {0,0,0}, {255,255,255}, {255,180,80}, {255,0,0}, {255,120,0},
               {255,220,0}, {0,255,0}, {0,255,255}, {0,0,255}, {160,0,255}, {255,0,120}};
-            int pct = id(usage_pcts).empty() ? -1 : id(usage_pcts)[0];
-            uint8_t r, g, bl;
-            float b;
-            if (pct >= 90) {
-              r = 255; g = 0; bl = 0;
-              b = std::max(0.15f, id(notif_brightness));  // warning stays visible
-            } else if (pct >= 75) {
-              r = 255; g = 160; bl = 0;
-              b = std::max(0.15f, id(notif_brightness));
+            float b = id(notif_brightness);
+            uint8_t r = 0, g = 0, bl = 0;
+            if (id(notif_mode) == 0) {
+              int pct = id(usage_pcts).empty() ? -1 : id(usage_pcts)[0];
+              if (pct >= 90)      { r = 255; }
+              else if (pct >= 75) { r = 255; g = 160; }
+              else if (pct >= 0)  { g = 255; }
+              // -1 (unknown/stale): stays dark
             } else {
               int ci = ((id(notif_color) % 11) + 11) % 11;
               r = PAL[ci][0]; g = PAL[ci][1]; bl = PAL[ci][2];
-              b = id(notif_brightness);
             }
             for (int i = 0; i < it.size(); i++) {
               it[i] = Color((uint8_t) (r * b + 0.5f), (uint8_t) (g * b + 0.5f), (uint8_t) (bl * b + 0.5f));
@@ -370,8 +373,8 @@ sensor:
 
   # Right knob (encoder 2: GPIO33/32, switch GPIO27 — stock keyboard_config.h;
   # A/B swapped vs. the stock defines because the bench showed clockwise
-  # decrementing): steps through the occupied keys hands-free, showing each
-  # session's overlay; its button compacts the session on display.
+  # decrementing): rotation toggles the notification-LED mode (usage traffic
+  # light vs. manual color); with settings open it adjusts the active entry.
   - platform: rotary_encoder
     id: knob_right
     pin_a:
@@ -397,15 +400,9 @@ sensor:
             id(oled).update();
             return;
           }
-          int start = id(overlay_slot) >= 0 ? id(overlay_slot) : -1;
-          for (int step = 1; step <= 16; step++) {
-            int s = ((start + step) % 16 + 16) % 16;
-            if (s < (int) id(key_names).size() && !id(key_names)[s].empty()) {
-              id(overlay_slot) = s;
-              id(overlay_until) = now + 3000;
-              break;
-            }
-          }
+          id(notif_mode) = id(notif_mode) == 0 ? 1 : 0;
+          id(info_text) = id(notif_mode) == 0 ? "notif: usage" : "notif: manual";
+          id(info_until) = now + 1500;
           id(oled).update();
     on_anticlockwise:
       - lambda: |-
@@ -420,15 +417,9 @@ sensor:
             id(oled).update();
             return;
           }
-          int start = id(overlay_slot) >= 0 ? id(overlay_slot) : 0;
-          for (int step = 1; step <= 16; step++) {
-            int s = ((start - step) % 16 + 16) % 16;
-            if (s < (int) id(key_names).size() && !id(key_names)[s].empty()) {
-              id(overlay_slot) = s;
-              id(overlay_until) = now + 3000;
-              break;
-            }
-          }
+          id(notif_mode) = id(notif_mode) == 0 ? 1 : 0;
+          id(info_text) = id(notif_mode) == 0 ? "notif: usage" : "notif: manual";
+          id(info_until) = now + 1500;
           id(oled).update();
 
 binary_sensor:
