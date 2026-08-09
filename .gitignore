@@ -7,3 +7,7 @@ dist/
 firmware/secrets.yaml
 firmware/.esphome/
 firmware/.gitignore
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
+.mcp.json
