@@ -118,6 +118,10 @@ uvx esphome compile firmware/deepdeck.yaml      # full build
 
 Design documents live in `docs/superpowers/` — the spec records every decision and hardware finding, including why the key matrix needs a custom scan (the PCB has no pull resistors; the firmware replicates the stock firmware's weak-drive-contention method).
 
+## License
+
+[MIT](LICENSE)
+
 ## Acknowledgments
 
 - [DeepSea Developments](https://www.deepseadev.com/) for the open-source DeepDeck — pin mappings and the key-scan method were derived from their [stock firmware](https://github.com/DeepSea-Developments/DeepDeck.Ahuyama.fw), and the kraken artwork comes from their bottom-plate design.
