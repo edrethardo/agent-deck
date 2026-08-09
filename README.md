@@ -100,6 +100,10 @@ Without the config file the daemon runs CLI-only — useful before the hardware 
 | **Hold** (≥600 ms) | Pick up the session — the key blinks; **click another key** to move/swap it there; same key or 10 s cancels |
 | **Left knob turn** | LED brightness in 5 % steps (persists across reboots) — or scrolls the menu while it's open |
 | **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked), **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly) and **compact context** (types `/compact` — the phone app has no manual compact, the deck does). Turn to choose, press to execute; any key or 8 s cancels |
+| **Right knob turn** | Steps through the occupied keys hands-free, showing each session's overlay |
+| **Right knob press** (while an overlay shows) | One-press **compact** for the session on display — the menu shortcut for the most frequent action |
+
+After a menu action the key's overlay stays up and shows the real result — `reloading`, `remote on`/`off`, `compacting`, or `locked` / `failed` / `no window` when nothing happened. The two **notification LEDs** (next to the USB port) are a static usage warning: amber when the 5-hour limit passes 75 %, red at 90 %, dark otherwise. A session within reach of auto-compaction (context ≥ 85 %) shows `!` behind its context percentage on the OLED and in the CLI.
 
 All menu actions work by typing into your desktop (wmctrl focus + xdotool palette injection) — they need an **unlocked** X session. On a locked screen the daemon refuses (the keystrokes would go to the screen locker, not to VS Code) and logs `desktop is locked` instead of pretending success.
 
@@ -110,7 +114,7 @@ Session details (model, effort, context %) come from Claude Code's own transcrip
 ## CLI
 
 ```bash
-agent-monitor status           # colored table: key, project, status, RC, model+effort, context %, duration
+agent-monitor status           # usage limits + colored table: key, project, status, RC, model+effort, context %, duration
 agent-monitor status --watch   # live view
 agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ```
@@ -120,7 +124,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 - **`deepdeck.local` doesn't resolve / pad unreachable** — confirm the pad joined WiFi (LEDs/OLED alive after power-up); check your router's client list for its IP and use that as `host` in `config.toml`; make sure PC and pad are on the same LAN (guest WiFi networks often isolate clients). The daemon reconnects automatically and logs `pad connection failed` once per outage.
 - **A key never changes from white although the session is active** — that session started before the hooks existed. Reload its VS Code window (`Ctrl+Shift+P` → *Developer: Reload Window*); the conversation is kept, tracking starts immediately.
 - **`pad firmware mismatch` in `journalctl --user -u agent-monitor`** — reflash OTA and restart the daemon (see version coupling above).
-- **A menu action shows "sent" but nothing happens** — check `journalctl --user -u agent-monitor`: `desktop is locked` means exactly that (unlock the PC; the injection cannot reach VS Code through a screen locker), `no match` means no window for that project was found.
+- **A menu action shows `locked` / `failed` / `no window`** — that is the daemon's honest result on the key's overlay: `locked` = unlock the PC (the injection cannot reach VS Code through a screen locker), `no window` = no window matching that project, `failed` = see `journalctl --user -u agent-monitor` for the reason.
 - **Double-press does nothing** — is `wmctrl` installed? Does `systemctl --user show-environment` contain `DISPLAY`? Check the journal for `focus request` lines.
 - **More than 16 sessions** — extras get no key (overflow) but stay visible in the CLI; real sessions evict blue scanned entries when keys run short.
 - **Left knob does nothing** — encoders 1/2 may be swapped on your build; change pins 25/26 to 33/32 in `firmware/deepdeck.yaml` and reflash OTA.

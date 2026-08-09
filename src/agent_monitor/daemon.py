@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import os
@@ -119,13 +120,24 @@ class Daemon:
               2: actions.compact_session}.get(option)
         if fn is None:
             return
+        if await asyncio.to_thread(actions.display_locked):
+            # Refuse before touching the desktop AND say so on the pad — the
+            # firmware's confirmation toast alone would claim success.
+            _LOGGER.warning("pad action refused: desktop is locked")
+            await self._note(sess.slot, "locked")
+            return
         ok = await asyncio.to_thread(fn, sess.cwd)
         _LOGGER.info("pad action %s for %s -> %s", fn.__name__, sess.cwd, "ok" if ok else "failed")
         if ok and option == 1 and sess.slot is not None:
             # We initiated this toggle, so we KNOW the new state — detection
             # cannot see in-process off-toggles (the relay socket lingers).
             self._registry.set_remote_manual(sess.slot, not sess.remote)
-            await self._refresh()
+        if ok:
+            note = {0: "reloading", 2: "compacting"}.get(
+                option, f"remote {'on' if sess.remote else 'off'}")
+        else:
+            note = "failed"
+        await self._note(sess.slot, note)
 
     async def run(self) -> None:
         if self._socket_path.exists():
@@ -229,6 +241,7 @@ class Daemon:
             payload = {
                 "updated": self._time_fn(),
                 "sessions": [s.to_dict() for s in sessions],
+                "usage": [dataclasses.asdict(lim) for lim in self._usage],
             }
             tmp = self._state_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload))

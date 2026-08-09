@@ -12,7 +12,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from . import paths
-from .render import project_name
+from .render import CTX_WARN_PCT, project_name
 
 STATUS_LABEL = {
     "available": ("available", "green"),
@@ -57,6 +57,19 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
     if not daemon_up:
         console.print("[red]⚠ daemon is not running[/red] — start it with: "
                       "systemctl --user start agent-monitor")
+    usage = (state or {}).get("usage") or []
+    if usage:
+        parts = []
+        for lim in usage:
+            label = escape(str(lim.get("label", "?")))
+            if lim.get("stale"):
+                parts.append(f"{label} --%")  # reset passed, number knowably wrong
+            else:
+                txt = f"{label} {lim.get('percent')}%"
+                if lim.get("resets_at"):
+                    txt += f" (resets {escape(str(lim['resets_at']))})"
+                parts.append(txt)
+        console.print("Usage: " + "  ·  ".join(parts))
     sessions = (state or {}).get("sessions", [])
     if not sessions:
         console.print("No active sessions.")
@@ -78,13 +91,19 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
         key = "—" if slot is None else str(slot + 1)
         model = f"{sess.get('model', '')} {sess.get('effort', '')}".strip()
         pct = sess.get("context_pct")
+        if pct is None:
+            ctx = ""
+        elif pct >= CTX_WARN_PCT:
+            ctx = f"[red bold]{pct}%![/red bold]"
+        else:
+            ctx = f"{pct}%"
         table.add_row(
             key,
             escape(project_name(sess.get("cwd", ""))),
             f"[{style}]{label}[/{style}]" if style else label,
             "✓" if sess.get("remote") else "",
             escape(model),
-            "" if pct is None else f"{pct}%",
+            ctx,
             format_duration(now - sess.get("since", now)),
         )
     console.print(table)

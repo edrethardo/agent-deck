@@ -11,6 +11,7 @@ NUM_KEY_LEDS = 16
 KEY_LEDS = list(range(NUM_KEY_LEDS))
 BRIGHTNESS = 0.4
 MAX_OLED_LINES = 8
+CTX_WARN_PCT = 85  # a session this close to auto-compact gets a visible marker
 
 # Active states keep fixed colors; the idle color encodes reachability:
 # blue = idle and remote-controllable (grab it from your phone),
@@ -85,7 +86,8 @@ def overlay_info(sessions: list[Session], notes: dict[int, str] | None = None) -
         if sess.model:
             parts.append(f"{sess.model} {sess.effort}".strip())
         if sess.context_pct is not None:
-            parts.append(f"ctx {sess.context_pct}%")
+            warn = " !" if sess.context_pct >= CTX_WARN_PCT else ""
+            parts.append(f"ctx {sess.context_pct}%{warn}")
         out[sess.slot] = "\n".join(parts)
     for slot, text in (notes or {}).items():
         if text and 0 <= slot < NUM_KEY_LEDS:

@@ -112,12 +112,12 @@ class _LoginctlRun:
 def test_display_locked_parses_loginctl(monkeypatch):
     monkeypatch.setattr(actions.shutil, "which", lambda name: "/usr/bin/loginctl")
     monkeypatch.setenv("DISPLAY", ":1")
-    assert actions._display_locked(run=_LoginctlRun(True)) is True
-    assert actions._display_locked(run=_LoginctlRun(False)) is False
+    assert actions.display_locked(run=_LoginctlRun(True)) is True
+    assert actions.display_locked(run=_LoginctlRun(False)) is False
 
 
 def test_actions_refuse_when_display_locked(monkeypatch):
-    monkeypatch.setattr(actions, "_display_locked", lambda **kw: True)
+    monkeypatch.setattr(actions, "display_locked", lambda **kw: True)
     monkeypatch.setattr(actions, "focus_window", lambda cwd, **kw: True)
     monkeypatch.setattr(actions.shutil, "which", lambda name: "/usr/bin/xdotool")
     calls = []

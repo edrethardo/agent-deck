@@ -17,7 +17,7 @@ from .focus import focus_window
 _LOGGER = logging.getLogger(__name__)
 
 
-def _display_locked(*, run=subprocess.run) -> bool:
+def display_locked(*, run=subprocess.run) -> bool:
     """True if the X session owning our DISPLAY is locked.
 
     A locked session sends ALL synthetic input to the screen locker — the
@@ -67,7 +67,7 @@ def _palette(command_text: str, *, run=subprocess.run, pause=time.sleep) -> bool
 
 def restart_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     """Reload the session's VS Code window (hooks load fresh on reload)."""
-    if _display_locked(run=run):
+    if display_locked(run=run):
         _LOGGER.warning("desktop is locked — pad actions need an unlocked session")
         return False
     if not focus_window(cwd):
@@ -78,7 +78,7 @@ def restart_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
 
 def _slash_command(cwd: str, command: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     """Focus the Claude input via its palette command, then send a slash command."""
-    if _display_locked(run=run):
+    if display_locked(run=run):
         _LOGGER.warning("desktop is locked — pad actions need an unlocked session")
         return False
     if not focus_window(cwd):

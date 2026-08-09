@@ -256,6 +256,7 @@ async def test_run_action_option_mapping(paths, monkeypatch):
     from agent_monitor.model import Session, Status
 
     called = []
+    monkeypatch.setattr(actions, "display_locked", lambda: False)
     monkeypatch.setattr(actions, "restart_session", lambda cwd: (called.append("restart"), True)[1])
     monkeypatch.setattr(actions, "toggle_remote_control", lambda cwd: (called.append("toggle"), True)[1])
     monkeypatch.setattr(actions, "compact_session", lambda cwd: (called.append("compact"), True)[1])
@@ -305,4 +306,55 @@ async def test_a_focus_that_lands_leaves_no_note(paths, monkeypatch):
     daemon.focus_slot(0)
     await asyncio.sleep(0.02)
     assert pad.shows[-1][4] == [""] * 16
+    await _stop(task)
+
+
+async def test_action_feedback_notes_on_pad(paths, monkeypatch):
+    from agent_monitor import actions
+
+    state_path, sock_path = paths
+    pad = FakePad()
+    daemon = Daemon(SessionRegistry(), pad, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True,
+                    note_seconds=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event())  # session on slot 0
+
+    ran = []
+    monkeypatch.setattr(actions, "display_locked", lambda: True)
+    monkeypatch.setattr(actions, "compact_session", lambda cwd: ran.append(cwd) or True)
+    daemon.action_slot(0, 2)
+    await asyncio.sleep(0.02)
+    assert ran == []  # locked: the action must not even be attempted
+    assert any(s[4][0] == "locked" for s in pad.shows)
+
+    monkeypatch.setattr(actions, "display_locked", lambda: False)
+    daemon.action_slot(0, 2)
+    await asyncio.sleep(0.02)
+    assert ran == ["/proj/x"]
+    assert any(s[4][0].startswith("compacting") for s in pad.shows)
+
+    monkeypatch.setattr(actions, "compact_session", lambda cwd: False)
+    daemon.action_slot(0, 2)
+    await asyncio.sleep(0.02)
+    assert any(s[4][0].startswith("failed") for s in pad.shows)
+    await asyncio.sleep(0.1)  # notes expire again
+    assert pad.shows[-1][4][0] == ""
+    await _stop(task)
+
+
+async def test_state_file_carries_usage(paths):
+    from agent_monitor.context import UsageLimit
+
+    state_path, sock_path = paths
+    daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True,
+                    usage_fn=lambda: [UsageLimit("5h", 37, "18:50", False)],
+                    ctx_interval=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await asyncio.sleep(0.1)
+    usage = json.loads(state_path.read_text())["usage"]
+    assert usage == [{"label": "5h", "percent": 37, "resets_at": "18:50", "stale": False}]
     await _stop(task)

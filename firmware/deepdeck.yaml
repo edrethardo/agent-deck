@@ -12,8 +12,12 @@ esphome:
           id: key_leds
           brightness: 100%
           effect: session_status
-      # notif_leds deliberately stay off (glow variants were tried and reverted);
-      # the light + effect remain defined for easy re-enabling.
+      # The two notification LEDs act as a static usage warning (amber/red when
+      # the 5h limit runs hot). The decorative glow stays reverted.
+      - light.turn_on:
+          id: notif_leds
+          brightness: 100%
+          effect: usage_warning
 
 esp32:
   board: esp32dev
@@ -171,14 +175,19 @@ light:
     gamma_correct: 0
     effects:
       - addressable_lambda:
-          name: claude_pulse
-          update_interval: 1s
+          name: usage_warning
+          update_interval: 500ms
           lambda: |-
-            // Static saturated orange glow — muted terracotta reads white on
-            // LEDs, and the breathing animation was disliked. Kept name for
-            // on_boot compatibility.
+            // Static account-usage warning from usage_pcts[0] (the 5h limit):
+            // amber from 75 %, red from 90 %, off when relaxed or unknown (-1).
+            // No animation on purpose.
+            int pct = id(usage_pcts).empty() ? -1 : id(usage_pcts)[0];
+            Color c = Color::BLACK;
+            if (pct >= 90) c = Color(255, 0, 0);
+            else if (pct >= 75) c = Color(255, 160, 0);
+            float b = id(led_brightness);
             for (int i = 0; i < it.size(); i++) {
-              it[i] = Color((uint8_t) (255 * 0.25f), (uint8_t) (80 * 0.25f), 0);
+              it[i] = Color((uint8_t) (c.r * b), (uint8_t) (c.g * b), (uint8_t) (c.b * b));
             }
 
 # Custom key-matrix scan replicating the stock firmware exactly (matrix.c,
@@ -327,6 +336,50 @@ sensor:
           id(info_until) = millis() + 1500;
           id(oled).update();
 
+  # Right knob (encoder 2: A=GPIO33 B=GPIO32, switch GPIO27 — stock
+  # keyboard_config.h): steps through the occupied keys hands-free, showing
+  # each session's overlay; its button compacts the session on display.
+  - platform: rotary_encoder
+    id: knob_right
+    pin_a:
+      number: GPIO33
+      mode:
+        input: true
+        pullup: true
+    pin_b:
+      number: GPIO32
+      mode:
+        input: true
+        pullup: true
+    on_clockwise:
+      - lambda: |-
+          if (id(menu_slot) >= 0) return;  // the menu belongs to the left knob
+          uint32_t now = millis();
+          int start = id(overlay_slot) >= 0 ? id(overlay_slot) : -1;
+          for (int step = 1; step <= 16; step++) {
+            int s = ((start + step) % 16 + 16) % 16;
+            if (s < (int) id(key_names).size() && !id(key_names)[s].empty()) {
+              id(overlay_slot) = s;
+              id(overlay_until) = now + 3000;
+              break;
+            }
+          }
+          id(oled).update();
+    on_anticlockwise:
+      - lambda: |-
+          if (id(menu_slot) >= 0) return;
+          uint32_t now = millis();
+          int start = id(overlay_slot) >= 0 ? id(overlay_slot) : 0;
+          for (int step = 1; step <= 16; step++) {
+            int s = ((start - step) % 16 + 16) % 16;
+            if (s < (int) id(key_names).size() && !id(key_names)[s].empty()) {
+              id(overlay_slot) = s;
+              id(overlay_until) = now + 3000;
+              break;
+            }
+          }
+          id(oled).update();
+
 binary_sensor:
   - platform: gpio
     id: knob_left_btn
@@ -345,9 +398,12 @@ binary_sensor:
               ESP_LOGI("menu", "action slot=%d option=%d", id(menu_slot), id(menu_cursor));
               id(action_req).publish_state(to_string(id(menu_slot)) + ":" +
                                            to_string(id(menu_cursor)) + ":" + to_string(now));
+              // Reopen the key's overlay instead of a blind "sent" toast — the
+              // daemon pushes the real result (reloading/locked/failed) into
+              // the overlay's info lines within a second.
+              id(overlay_slot) = id(menu_slot);
+              id(overlay_until) = now + 4000;
               id(menu_slot) = -1;
-              id(info_text) = "sent";
-              id(info_until) = now + 1200;
             } else if (id(overlay_slot) >= 0 && (int32_t) (now - id(overlay_until)) < 0) {
               id(menu_slot) = id(overlay_slot);
               id(menu_cursor) = 0;
@@ -359,6 +415,29 @@ binary_sensor:
     # stock firmware reads it active-high. If the bench shows the button
     # reading inverted (pressed = low reported as high, etc.), add
     # `inverted: true` on the pin above as the fix.
+
+  - platform: gpio
+    id: knob_right_btn
+    internal: true
+    pin:
+      number: GPIO27
+      mode:
+        input: true
+    filters:
+      - delayed_on: 30ms
+    on_press:
+      then:
+        - lambda: |-
+            // One-press compact for the session currently shown in the
+            // overlay (option 2 of the pad menu, without the menu).
+            uint32_t now = millis();
+            if (id(menu_slot) >= 0) return;
+            if (id(overlay_slot) >= 0 && (int32_t) (now - id(overlay_until)) < 0) {
+              ESP_LOGI("knob2", "compact slot=%d", id(overlay_slot));
+              id(action_req).publish_state(to_string(id(overlay_slot)) + ":2:" + to_string(now));
+              id(overlay_until) = now + 4000;  // keep the overlay for the result note
+              id(oled).update();
+            }
 
 font:
   - file: "gfonts://Roboto Mono"

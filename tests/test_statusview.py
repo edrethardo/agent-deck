@@ -111,3 +111,24 @@ def test_model_and_context_columns():
     assert "52%" in out
     assert "Model" in out
     assert "Ctx" in out
+
+
+def test_usage_line_above_table():
+    state = {"sessions": [
+        {"session_id": "a", "cwd": "/p/x", "pid": 1, "status": "busy",
+         "slot": 0, "since": 40.0}],
+        "usage": [
+            {"label": "5h", "percent": 37, "resets_at": "18:50", "stale": False},
+            {"label": "7d", "percent": 74, "resets_at": "Tue 16:00", "stale": True},
+        ]}
+    out = render_status(state, now=100.0, daemon_up=True, width=120)
+    assert "5h 37% (resets 18:50)" in out
+    assert "7d --%" in out  # stale: never a knowably wrong number
+
+
+def test_high_context_marked():
+    state = {"sessions": [
+        {"session_id": "a", "cwd": "/p/x", "pid": 1, "status": "busy",
+         "slot": 0, "since": 40.0, "model": "opus-5", "context_pct": 91}]}
+    out = render_status(state, now=100.0, daemon_up=True, width=120)
+    assert "91%!" in out

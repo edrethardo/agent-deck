@@ -145,3 +145,9 @@ def test_overlay_note_on_a_slot_with_no_detail_yet():
 def test_overlay_ignores_notes_off_the_board():
     info = overlay_info([_sess(0)], {99: "nope", -1: "nope", 0: ""})
     assert info == [""] * 16
+
+
+def test_overlay_marks_high_context():
+    a = _sess(0)
+    a.model, a.effort, a.context_pct = "opus-5", "xhigh", 91
+    assert overlay_info([a])[0] == "opus-5 xhigh\nctx 91% !"
