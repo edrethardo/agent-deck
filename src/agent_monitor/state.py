@@ -7,9 +7,15 @@ from .model import Session, Status, status_for_event
 MAX_SLOTS = 16
 
 
+GREEN_HOLD_S = 600.0  # how long a finished session stays green
+
+
 class SessionRegistry:
     def __init__(self) -> None:
         self._sessions: dict[str, Session] = {}
+        # Which key each project last held — lets a restarted session reclaim
+        # its key even when lower-numbered keys are free.
+        self._last_slot_by_cwd: dict[str, int] = {}
 
     def sessions(self) -> list[Session]:
         """Sorted by slot, overflow (None) last."""
@@ -32,8 +38,10 @@ class SessionRegistry:
     ) -> bool:
         """Apply an event. True if the display state changed."""
         if event == "SessionEnd":
-            if self._sessions.pop(session_id, None) is None:
+            removed = self._sessions.pop(session_id, None)
+            if removed is None:
                 return False
+            self._remember_slot(removed)
             self._promote_overflow()
             return True
 
@@ -41,25 +49,53 @@ class SessionRegistry:
         if sess is None:
             status = status_for_event(event, message, None) or Status.AVAILABLE
             twin = self._sessions.pop(f"proc-{pid}", None) if pid else None
+            slot = twin.slot if twin is not None and twin.slot is not None else None
+            if slot is None:
+                preferred = self._last_slot_by_cwd.get(cwd)
+                if preferred is not None and self._slot_is_free(preferred):
+                    slot = preferred
+            if slot is None:
+                slot = self._claim_slot_for_real()
+            self._last_slot_by_cwd.pop(cwd, None)
             self._sessions[session_id] = Session(
                 session_id=session_id,
                 cwd=cwd,
                 pid=pid,
                 status=status,
-                slot=twin.slot if twin is not None and twin.slot is not None
-                else self._claim_slot_for_real(),
+                slot=slot,
                 since=now,
+                finished=event == "Stop",
             )
             return True
 
         sess.cwd = cwd or sess.cwd
         sess.pid = pid if pid > 1 else sess.pid
         new = status_for_event(event, message, sess.status)
-        if new is None or new == sess.status:
+        if new is None:
+            return False
+        finished = event == "Stop"
+        if new == sess.status and finished == sess.finished:
             return False
         sess.status = new
+        sess.finished = finished
         sess.since = now
         return True
+
+    def decay_finished(self, now: float, hold: float = GREEN_HOLD_S) -> bool:
+        """Fade finished sessions back to plain idle after `hold` seconds."""
+        changed = False
+        for sess in self._sessions.values():
+            if sess.finished and sess.status is Status.AVAILABLE and now - sess.since >= hold:
+                sess.finished = False
+                changed = True
+        return changed
+
+    def _remember_slot(self, sess: Session) -> None:
+        if sess.slot is not None and sess.cwd:
+            self._last_slot_by_cwd[sess.cwd] = sess.slot
+
+    def _slot_is_free(self, slot: int) -> bool:
+        return 0 <= slot < MAX_SLOTS and all(s.slot != slot for s in self._sessions.values())
 
     def add_scanned(self, pid: int, cwd: str, now: float) -> bool:
         """Register a discovered claude process unless its PID is already tracked."""
@@ -104,6 +140,7 @@ class SessionRegistry:
         """Remove sessions whose process is dead. True if anything changed."""
         dead = [sid for sid, s in self._sessions.items() if not pid_alive(s.pid)]
         for sid in dead:
+            self._remember_slot(self._sessions[sid])
             del self._sessions[sid]
         promoted = self._promote_overflow()
         return bool(dead) or promoted

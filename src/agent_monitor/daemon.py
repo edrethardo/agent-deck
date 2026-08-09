@@ -196,7 +196,9 @@ class Daemon:
         while True:
             await asyncio.sleep(self._prune_interval)
             try:
-                if self._registry.prune(self._pid_alive):
+                changed = self._registry.prune(self._pid_alive)
+                changed |= self._registry.decay_finished(self._time_fn())
+                if changed:
                     await self._refresh()
             except Exception:
                 _LOGGER.exception("prune tick failed")

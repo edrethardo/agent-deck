@@ -20,12 +20,15 @@ COLORS: dict[Status, tuple[int, int, int]] = {
 }
 IDLE_REMOTE_COLOR = (0, 0, 255)
 IDLE_LOCAL_COLOR = (255, 255, 255)
+FINISHED_COLOR = (0, 255, 0)  # green: recently finished a task (decays to idle)
 
 
 def _color_for(sess: Session) -> tuple[int, int, int]:
     fixed = COLORS.get(sess.status)
     if fixed is not None:
         return fixed
+    if sess.status is Status.AVAILABLE and sess.finished:
+        return FINISHED_COLOR
     return IDLE_REMOTE_COLOR if sess.remote else IDLE_LOCAL_COLOR
 STATUS_CHAR: dict[Status, str] = {
     Status.AVAILABLE: "+",

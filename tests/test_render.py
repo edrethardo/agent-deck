@@ -90,3 +90,10 @@ def test_remote_session_name_gets_marker():
     names = key_names([sess])
     assert names[0].endswith(" [R]")
     assert len(names[0]) <= 25
+
+
+def test_finished_session_lights_green():
+    sess = _sess(0)
+    sess.finished = True
+    colors = led_colors([sess])
+    assert colors[0:3] == [0, int(255 * BRIGHTNESS), 0]

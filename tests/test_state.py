@@ -28,11 +28,43 @@ def test_status_change_updates_since_and_reports_change():
     assert (s.status, s.since) == (Status.BUSY, 5.0)
 
 
-def test_same_status_is_no_change():
+def test_same_status_and_finish_state_is_no_change():
     reg = SessionRegistry()
     _start(reg, "a", t=1.0)
+    reg.apply_event("Stop", "a", "/proj/a", 100, None, 5.0)  # available -> finished
     assert reg.apply_event("Stop", "a", "/proj/a", 100, None, 9.0) is False
-    assert reg.sessions()[0].since == 1.0
+    assert reg.sessions()[0].since == 5.0
+
+
+def test_stop_marks_session_finished_and_prompt_clears_it():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 100, None, 2.0)
+    assert reg.apply_event("Stop", "a", "/proj/a", 100, None, 3.0) is True
+    assert (reg.by_id("a").status, reg.by_id("a").finished) == (Status.AVAILABLE, True)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 100, None, 4.0)
+    assert reg.by_id("a").finished is False
+
+
+def test_finished_decays_after_hold():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 100, None, 2.0)
+    reg.apply_event("Stop", "a", "/proj/a", 100, None, 3.0)
+    assert reg.decay_finished(100.0) is False  # within the 600s hold
+    assert reg.decay_finished(700.0) is True
+    assert reg.by_id("a").finished is False
+    assert reg.decay_finished(800.0) is False
+
+
+def test_restarted_session_reclaims_its_projects_key():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=100)
+    _start(reg, "b", t=1.0, pid=200)          # slot 1
+    reg.swap_slots(1, 7)                       # user moved b to key 8
+    reg.prune(lambda pid: pid != 200)          # b's process died (reload)
+    reg.apply_event("SessionStart", "b2", "/proj/b", 300, None, 5.0)
+    assert reg.by_id("b2").slot == 7           # reclaimed, despite slot 1 being free
 
 
 def test_event_without_status_change_is_no_change():

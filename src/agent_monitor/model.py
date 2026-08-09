@@ -20,6 +20,7 @@ class Session:
     slot: int | None  # 0-15, None = overflow (no LED)
     since: float
     remote: bool = False
+    finished: bool = False  # last transition to AVAILABLE came from a Stop (renders green)
 
     def to_dict(self) -> dict:
         return {
@@ -30,6 +31,7 @@ class Session:
             "slot": self.slot,
             "since": self.since,
             "remote": self.remote,
+            "finished": self.finished,
         }
 
     @classmethod
@@ -42,6 +44,7 @@ class Session:
             slot=d.get("slot"),
             since=float(d.get("since", 0.0)),
             remote=bool(d.get("remote", False)),
+            finished=bool(d.get("finished", False)),
         )
 
 

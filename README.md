@@ -4,10 +4,11 @@
 
 Run half a dozen Claude Code sessions in parallel and you lose track of which one is working, which one finished, and which one has been silently waiting ten minutes for you to approve a command. agent-deck puts every session on its own key of a WiFi macropad sitting on your desk:
 
-- 🔵 **blue** — session is idle and **remote-controllable**: pick it up from your phone
-- ⚪ **white** — session is idle but only reachable at the PC (includes sessions from before the hooks were installed — reload those to get live status)
+- 🟢 **green** — **recently finished a task**: a fresh result is waiting for you (fades to blue/white after 10 min)
 - 🟡 **yellow** — Claude is working
 - 🔴 **red** — Claude is **blocked waiting for your input** (permission prompt, question, plan approval)
+- 🔵 **blue** — session is idle and **remote-controllable**: pick it up from your phone
+- ⚪ **white** — session is idle but only reachable at the PC (includes sessions from before the hooks were installed — reload those to get live status)
 
 The OLED shows a kraken until you need it. Press a key to see which project lives there; double-press to **jump straight to that session's window** on your desktop; hold a key to rearrange the board; the left knob dims the LEDs.
 

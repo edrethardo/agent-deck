@@ -88,3 +88,11 @@ def test_rc_column_blank_for_non_remote():
          "slot": 0, "since": 0.0, "remote": False}]}
     out = render_status(state, now=1.0, daemon_up=True)
     assert "✓" not in out
+
+
+def test_finished_label_shown_green():
+    state = {"updated": 1.0, "sessions": [
+        {"session_id": "a", "cwd": "/x/proj", "pid": 1, "status": "available",
+         "slot": 0, "since": 0.0, "finished": True}]}
+    out = render_status(state, now=1.0, daemon_up=True)
+    assert "finished" in out
