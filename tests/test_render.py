@@ -128,3 +128,20 @@ def test_overlay_info_per_slot():
     assert info[0] == "fable-5 xhigh\nctx 52%"
     assert info[3] == "opus-5"
     assert info[5] == ""
+
+
+def test_overlay_note_leads_and_keeps_the_session_detail():
+    a = _sess(0)
+    a.model, a.effort, a.context_pct = "fable-5", "xhigh", 52
+    info = overlay_info([a], {0: "no window"})
+    assert info[0] == "no window\nfable-5 xhigh\nctx 52%"
+
+
+def test_overlay_note_on_a_slot_with_no_detail_yet():
+    info = overlay_info([_sess(2)], {2: "no window"})
+    assert info[2] == "no window", "no trailing blank line to waste an OLED row"
+
+
+def test_overlay_ignores_notes_off_the_board():
+    info = overlay_info([_sess(0)], {99: "nope", -1: "nope", 0: ""})
+    assert info == [""] * 16

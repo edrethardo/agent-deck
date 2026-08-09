@@ -71,8 +71,12 @@ def usage_percents(limits: list[UsageLimit]) -> list[int]:
     return [-1 if lim.stale else max(0, min(100, lim.percent)) for lim in limits]
 
 
-def overlay_info(sessions: list[Session]) -> list[str]:
-    """Extra overlay lines per key slot ('\\n'-separated): model+effort, context %."""
+def overlay_info(sessions: list[Session], notes: dict[int, str] | None = None) -> list[str]:
+    """Extra overlay lines per key slot ('\\n'-separated): model+effort, context %.
+
+    `notes` prepends a short-lived line for a slot — how a pad action that did nothing
+    visible says so, since the key press otherwise leaves no trace on the OLED.
+    """
     out = [""] * NUM_KEY_LEDS
     for sess in sessions:
         if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
@@ -83,6 +87,9 @@ def overlay_info(sessions: list[Session]) -> list[str]:
         if sess.context_pct is not None:
             parts.append(f"ctx {sess.context_pct}%")
         out[sess.slot] = "\n".join(parts)
+    for slot, text in (notes or {}).items():
+        if text and 0 <= slot < NUM_KEY_LEDS:
+            out[slot] = f"{text}\n{out[slot]}".rstrip("\n")
     return out
 
 

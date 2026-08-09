@@ -46,6 +46,9 @@ class Daemon:
         ctx_fn: Callable[[int], ContextInfo | None] | None = None,
         usage_fn: Callable[[], list[UsageLimit]] | None = None,
         ctx_interval: float = 10.0,
+        # The firmware keeps a key's overlay up for 3 s after a press, which is the
+        # whole window a note has to be read in.
+        note_seconds: float = 3.0,
     ):
         self._registry = registry
         self._pad = pad
@@ -62,6 +65,8 @@ class Daemon:
         self._usage_fn = usage_fn
         self._ctx_interval = ctx_interval
         self._usage: list[UsageLimit] = []
+        self._note_seconds = note_seconds
+        self._notes: dict[int, str] = {}
         self._refresh_lock = asyncio.Lock()
         self.ready = asyncio.Event()
 
@@ -69,7 +74,7 @@ class Daemon:
         """Fire-and-forget: focus the window of the session on `slot`."""
         for sess in self._registry.sessions():
             if sess.slot == slot:
-                asyncio.get_event_loop().create_task(self._focus(sess.cwd))
+                asyncio.get_event_loop().create_task(self._focus(sess.cwd, sess.slot))
                 return
 
     def move_slot(self, src: int, dst: int) -> None:
@@ -84,10 +89,28 @@ class Daemon:
                 asyncio.get_event_loop().create_task(self._run_action(sess, option))
                 return
 
-    async def _focus(self, cwd: str) -> None:
+    async def _focus(self, cwd: str, slot: int | None = None) -> None:
         from .focus import focus_window
         ok = await asyncio.to_thread(focus_window, cwd)
         _LOGGER.info("focus request for %s -> %s", cwd, "ok" if ok else "no match")
+        if not ok:
+            # Otherwise a double-press on a session with no window looks like a dead pad.
+            await self._note(slot, "no window")
+
+    async def _note(self, slot: int | None, text: str) -> None:
+        """Put a line on the key's OLED overlay, then take it away again."""
+        if slot is None:
+            return
+        self._notes[slot] = text
+        await self._refresh()
+
+        async def _expire() -> None:
+            await asyncio.sleep(self._note_seconds)
+            if self._notes.get(slot) == text:  # a newer note wins
+                del self._notes[slot]
+                await self._refresh()
+
+        asyncio.get_event_loop().create_task(_expire())
 
     async def _run_action(self, sess, option: int) -> None:
         from . import actions
@@ -216,7 +239,7 @@ class Daemon:
                     usage_lines(self._usage),
                     key_names(sessions),
                     flash_flags(sessions),
-                    overlay_info(sessions),
+                    overlay_info(sessions, self._notes),
                     usage_percents(self._usage),
                 )
 

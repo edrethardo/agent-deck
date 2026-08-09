@@ -267,3 +267,42 @@ async def test_run_action_option_mapping(paths, monkeypatch):
     await daemon._run_action(sess, 2)
     await daemon._run_action(sess, 7)  # unknown option — ignored
     assert called == ["restart", "compact"]
+
+
+async def test_a_focus_that_finds_nothing_says_so_on_the_key(paths, monkeypatch):
+    """A double-press on a session with no window must not look like a dead pad."""
+    from agent_monitor import focus as focus_mod
+    monkeypatch.setattr(focus_mod, "focus_window", lambda cwd: False)
+    state_path, sock_path = paths
+    pad = FakePad()
+    daemon = Daemon(SessionRegistry(), pad, state_path, sock_path,
+                    time_fn=lambda: 42.0, pid_alive=lambda pid: True,
+                    note_seconds=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event())
+
+    daemon.focus_slot(0)
+    await asyncio.sleep(0.02)
+    assert pad.shows[-1][4][0] == "no window"
+
+    await asyncio.sleep(0.1)  # the note is transient — the overlay goes back to normal
+    assert pad.shows[-1][4][0] == ""
+    await _stop(task)
+
+
+async def test_a_focus_that_lands_leaves_no_note(paths, monkeypatch):
+    from agent_monitor import focus as focus_mod
+    monkeypatch.setattr(focus_mod, "focus_window", lambda cwd: True)
+    state_path, sock_path = paths
+    pad = FakePad()
+    daemon = Daemon(SessionRegistry(), pad, state_path, sock_path,
+                    time_fn=lambda: 42.0, pid_alive=lambda pid: True)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event())
+
+    daemon.focus_slot(0)
+    await asyncio.sleep(0.02)
+    assert pad.shows[-1][4] == [""] * 16
+    await _stop(task)
