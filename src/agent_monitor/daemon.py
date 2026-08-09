@@ -40,6 +40,7 @@ class Daemon:
         prune_interval: float = 15.0,
         scan_fn: Callable[[], dict[int, str]] | None = None,
         scan_interval: float = 20.0,
+        rc_fn: Callable[[int], bool] | None = None,
     ):
         self._registry = registry
         self._pad = pad
@@ -50,6 +51,7 @@ class Daemon:
         self._prune_interval = prune_interval
         self._scan_fn = scan_fn
         self._scan_interval = scan_interval
+        self._rc_fn = rc_fn
         self._refresh_lock = asyncio.Lock()
         self.ready = asyncio.Event()
 
@@ -192,6 +194,8 @@ class Daemon:
                 changed = False
                 for pid, cwd in self._scan_fn().items():
                     changed |= self._registry.add_scanned(pid, cwd, self._time_fn())
+                if self._rc_fn is not None:
+                    changed |= self._registry.update_remote_flags(self._rc_fn)
                 if changed:
                     await self._refresh()
             except Exception:

@@ -19,6 +19,7 @@ class Session:
     status: Status
     slot: int | None  # 0-15, None = overflow (no LED)
     since: float
+    remote: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -28,6 +29,7 @@ class Session:
             "status": self.status.value,
             "slot": self.slot,
             "since": self.since,
+            "remote": self.remote,
         }
 
     @classmethod
@@ -39,6 +41,7 @@ class Session:
             status=Status(d["status"]),
             slot=d.get("slot"),
             since=float(d.get("since", 0.0)),
+            remote=bool(d.get("remote", False)),
         )
 
 

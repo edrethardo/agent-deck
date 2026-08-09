@@ -63,7 +63,10 @@ def key_names(sessions: list[Session]) -> list[str]:
     for sess in sessions:
         if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
             continue
-        out[sess.slot] = project_name(sess.cwd)[:MAX_NAME_LEN]
+        name = project_name(sess.cwd)[:MAX_NAME_LEN]
+        if sess.remote:
+            name = name[: MAX_NAME_LEN - 4] + " [R]"
+        out[sess.slot] = name
     return out
 
 

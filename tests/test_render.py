@@ -73,3 +73,11 @@ def test_key_names_maps_full_names_by_slot():
     assert names[0] == "abcdefghijklmnopqrstuvwxy"  # truncated to 25
     assert names[3] == "short"
     assert names[1] == ""
+
+
+def test_remote_session_name_gets_marker():
+    sess = _sess(0, cwd="/home/aaron/code/abcdefghijklmnopqrstuvwxyz123")
+    sess.remote = True
+    names = key_names([sess])
+    assert names[0].endswith(" [R]")
+    assert len(names[0]) <= 25

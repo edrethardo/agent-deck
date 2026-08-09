@@ -66,6 +66,7 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
     table.add_column("Key", justify="right")
     table.add_column("Project")
     table.add_column("Status")
+    table.add_column("RC", justify="center")
     table.add_column("For", justify="right")
     for sess in sessions:
         label, style = STATUS_LABEL.get(sess.get("status"), (escape(str(sess.get("status"))), ""))
@@ -75,6 +76,7 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
             key,
             escape(project_name(sess.get("cwd", ""))),
             f"[{style}]{label}[/{style}]" if style else label,
+            "✓" if sess.get("remote") else "",
             format_duration(now - sess.get("since", now)),
         )
     console.print(table)

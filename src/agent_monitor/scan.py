@@ -99,3 +99,50 @@ def claude_processes() -> dict[int, str]:
                 break
             anc = _ppid(anc)
     return result
+
+
+ANTHROPIC_NET_PREFIX = "160.79."
+
+
+def _socket_inodes(pid: int) -> set[str]:
+    inodes = set()
+    try:
+        for fd in os.listdir(f"/proc/{pid}/fd"):
+            try:
+                target = os.readlink(f"/proc/{pid}/fd/{fd}")
+            except OSError:
+                continue
+            if target.startswith("socket:["):
+                inodes.add(target[8:-1])
+    except OSError:
+        pass
+    return inodes
+
+
+def _established_remote_ips(inodes: set[str], tcp_path: str = "/proc/net/tcp") -> list[str]:
+    """Remote IPv4 addresses of ESTABLISHED sockets owned by `inodes`."""
+    ips = []
+    try:
+        lines = Path(tcp_path).read_text().splitlines()[1:]
+    except OSError:
+        return ips
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 10 or parts[3] != "01":  # 01 = ESTABLISHED
+            continue
+        if parts[9] not in inodes:
+            continue
+        hex_ip = parts[2].split(":")[0]
+        if len(hex_ip) == 8:
+            octets = [str(int(hex_ip[i:i + 2], 16)) for i in (6, 4, 2, 0)]
+            ips.append(".".join(octets))
+    return ips
+
+
+def has_remote_control(pid: int) -> bool:
+    """True if the process holds an established connection into Anthropic's
+    network (160.79.0.0/16) — the remote-control relay does, even when idle."""
+    inodes = _socket_inodes(pid)
+    if not inodes:
+        return False
+    return any(ip.startswith(ANTHROPIC_NET_PREFIX) for ip in _established_remote_ips(inodes))

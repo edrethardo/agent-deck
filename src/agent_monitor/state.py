@@ -89,6 +89,17 @@ class SessionRegistry:
             sess_b.slot = a
         return True
 
+    def update_remote_flags(self, has_rc: Callable[[int], bool]) -> bool:
+        """Refresh each session's remote-control flag. True if any changed."""
+        changed = False
+        for sess in self._sessions.values():
+            if sess.pid > 1:
+                flag = has_rc(sess.pid)
+                if flag != sess.remote:
+                    sess.remote = flag
+                    changed = True
+        return changed
+
     def prune(self, pid_alive: Callable[[int], bool]) -> bool:
         """Remove sessions whose process is dead. True if anything changed."""
         dead = [sid for sid, s in self._sessions.items() if not pid_alive(s.pid)]

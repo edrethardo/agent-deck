@@ -188,3 +188,12 @@ def test_swap_empty_slots_is_no_change():
     reg = SessionRegistry()
     assert reg.swap_slots(3, 4) is False
     assert reg.swap_slots(3, 3) is False
+
+
+def test_update_remote_flags_reports_changes():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=100)
+    assert reg.update_remote_flags(lambda pid: True) is True
+    assert reg.by_id("a").remote is True
+    assert reg.update_remote_flags(lambda pid: True) is False
+    assert reg.update_remote_flags(lambda pid: False) is True
