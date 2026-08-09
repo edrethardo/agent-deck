@@ -82,6 +82,22 @@ globals:
     type: std::vector<std::string>
     restore_value: no
     initial_value: 'std::vector<std::string>(16)'
+  - id: notif_brightness
+    type: float
+    restore_value: yes
+    initial_value: '0.3'
+  - id: notif_color
+    type: int
+    restore_value: yes
+    initial_value: '0'
+  - id: setting_mode
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: setting_until
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
   - id: usage_pcts
     type: std::vector<int>
     restore_value: no
@@ -178,16 +194,28 @@ light:
           name: usage_warning
           update_interval: 500ms
           lambda: |-
-            // Static account-usage warning from usage_pcts[0] (the 5h limit):
-            // amber from 75 %, red from 90 %, off when relaxed or unknown (-1).
-            // No animation on purpose.
+            // User-chosen static accent color (right-knob settings), overridden
+            // by the account-usage warning: amber from 75 %, red from 90 % of
+            // the 5h limit (usage_pcts[0]). No animation on purpose.
+            static const uint8_t PAL[11][3] = {
+              {0,0,0}, {255,255,255}, {255,180,80}, {255,0,0}, {255,120,0},
+              {255,220,0}, {0,255,0}, {0,255,255}, {0,0,255}, {160,0,255}, {255,0,120}};
             int pct = id(usage_pcts).empty() ? -1 : id(usage_pcts)[0];
-            Color c = Color::BLACK;
-            if (pct >= 90) c = Color(255, 0, 0);
-            else if (pct >= 75) c = Color(255, 160, 0);
-            float b = id(led_brightness);
+            uint8_t r, g, bl;
+            float b;
+            if (pct >= 90) {
+              r = 255; g = 0; bl = 0;
+              b = std::max(0.15f, id(notif_brightness));  // warning stays visible
+            } else if (pct >= 75) {
+              r = 255; g = 160; bl = 0;
+              b = std::max(0.15f, id(notif_brightness));
+            } else {
+              int ci = ((id(notif_color) % 11) + 11) % 11;
+              r = PAL[ci][0]; g = PAL[ci][1]; bl = PAL[ci][2];
+              b = id(notif_brightness);
+            }
             for (int i = 0; i < it.size(); i++) {
-              it[i] = Color((uint8_t) (c.r * b), (uint8_t) (c.g * b), (uint8_t) (c.b * b));
+              it[i] = Color((uint8_t) (r * b), (uint8_t) (g * b), (uint8_t) (bl * b));
             }
 
 # Custom key-matrix scan replicating the stock firmware exactly (matrix.c,
@@ -356,6 +384,15 @@ sensor:
       - lambda: |-
           if (id(menu_slot) >= 0) return;  // the menu belongs to the left knob
           uint32_t now = millis();
+          if (id(setting_mode) >= 0) {     // settings open: adjust the active entry
+            if (id(setting_mode) == 0)
+              id(notif_brightness) = std::min(1.0f, id(notif_brightness) + 0.05f);
+            else
+              id(notif_color) = (id(notif_color) + 1) % 11;
+            id(setting_until) = now + 8000;
+            id(oled).update();
+            return;
+          }
           int start = id(overlay_slot) >= 0 ? id(overlay_slot) : -1;
           for (int step = 1; step <= 16; step++) {
             int s = ((start + step) % 16 + 16) % 16;
@@ -370,6 +407,15 @@ sensor:
       - lambda: |-
           if (id(menu_slot) >= 0) return;
           uint32_t now = millis();
+          if (id(setting_mode) >= 0) {
+            if (id(setting_mode) == 0)
+              id(notif_brightness) = std::max(0.0f, id(notif_brightness) - 0.05f);
+            else
+              id(notif_color) = (id(notif_color) + 10) % 11;  // one step back
+            id(setting_until) = now + 8000;
+            id(oled).update();
+            return;
+          }
           int start = id(overlay_slot) >= 0 ? id(overlay_slot) : 0;
           for (int step = 1; step <= 16; step++) {
             int s = ((start - step) % 16 + 16) % 16;
@@ -429,16 +475,14 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            // One-press compact for the session currently shown in the
-            // overlay (option 2 of the pad menu, without the menu).
+            // Cycles the notification-LED settings: brightness -> color ->
+            // close. Values persist (restore_value) and preview live on the
+            // LEDs. Compact lives in the left-knob menu.
             uint32_t now = millis();
             if (id(menu_slot) >= 0) return;
-            if (id(overlay_slot) >= 0 && (int32_t) (now - id(overlay_until)) < 0) {
-              ESP_LOGI("knob2", "compact slot=%d", id(overlay_slot));
-              id(action_req).publish_state(to_string(id(overlay_slot)) + ":2:" + to_string(now));
-              id(overlay_until) = now + 4000;  // keep the overlay for the result note
-              id(oled).update();
-            }
+            id(setting_mode) = id(setting_mode) >= 1 ? -1 : id(setting_mode) + 1;
+            if (id(setting_mode) >= 0) id(setting_until) = now + 8000;
+            id(oled).update();
 
 font:
   - file: "gfonts://Roboto Mono"
@@ -469,6 +513,23 @@ display:
           return;
         }
         id(menu_slot) = -1;
+      }
+      if (id(setting_mode) >= 0) {
+        if ((int32_t) (millis() - id(setting_until)) < 0) {
+          static const char *NAMES[11] = {"off", "white", "warm", "red", "orange",
+                                          "yellow", "green", "cyan", "blue", "purple", "pink"};
+          it.print(0, 0, id(font8), "notif LED settings");
+          char buf[32];
+          snprintf(buf, sizeof(buf), "%c brightness %d%%",
+                   id(setting_mode) == 0 ? '>' : ' ', (int) (id(notif_brightness) * 100));
+          it.print(0, 20, id(font8), buf);
+          snprintf(buf, sizeof(buf), "%c color %s",
+                   id(setting_mode) == 1 ? '>' : ' ', NAMES[((id(notif_color) % 11) + 11) % 11]);
+          it.print(0, 32, id(font8), buf);
+          it.print(0, 50, id(font8), "turn: adjust  click: next");
+          return;
+        }
+        id(setting_mode) = -1;  // timed out
       }
       if (id(overlay_slot) >= 0) {
         if ((int32_t) (millis() - id(overlay_until)) < 0) {

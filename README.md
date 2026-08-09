@@ -101,9 +101,9 @@ Without the config file the daemon runs CLI-only — useful before the hardware 
 | **Left knob turn** | LED brightness in 5 % steps (persists across reboots) — or scrolls the menu while it's open |
 | **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked), **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly) and **compact context** (types `/compact` — the phone app has no manual compact, the deck does). Turn to choose, press to execute; any key or 8 s cancels |
 | **Right knob turn** | Steps through the occupied keys hands-free, showing each session's overlay |
-| **Right knob press** (while an overlay shows) | One-press **compact** for the session on display — the menu shortcut for the most frequent action |
+| **Right knob press** | Notification-LED settings: first press = brightness, second = color (11 saturated presets incl. off), third closes. Turn to adjust with live preview; values survive reboots; 8 s idle closes too |
 
-After a menu action the key's overlay stays up and shows the real result — `reloading`, `remote on`/`off`, `compacting`, or `locked` / `failed` / `no window` when nothing happened. The two **notification LEDs** (next to the USB port) are a static usage warning: amber when the 5-hour limit passes 75 %, red at 90 %, dark otherwise. A session within reach of auto-compaction (context ≥ 85 %) shows `!` behind its context percentage on the OLED and in the CLI.
+After a menu action the key's overlay stays up and shows the real result — `reloading`, `remote on`/`off`, `compacting`, or `locked` / `failed` / `no window` when nothing happened. The two **notification LEDs** (next to the USB port) show your chosen accent color — overridden as a static usage warning when the 5-hour limit runs hot: amber past 75 %, red past 90 %. A session within reach of auto-compaction (context ≥ 85 %) shows `!` behind its context percentage on the OLED and in the CLI.
 
 All menu actions work by typing into your desktop (wmctrl focus + xdotool palette injection) — they need an **unlocked** X session. On a locked screen the daemon refuses (the keystrokes would go to the screen locker, not to VS Code) and logs `desktop is locked` instead of pretending success.
 
