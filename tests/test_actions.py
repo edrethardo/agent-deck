@@ -44,7 +44,7 @@ def test_restart_session_returns_false_when_window_not_found(monkeypatch):
     calls = []
     ok = actions.restart_session("/proj/a", run=_fake_run(calls), pause=_fake_pause([]))
     assert ok is False
-    assert calls == []
+    assert [c for c in calls if c[0] == "xdotool"] == []
 
 
 def test_toggle_remote_control_returns_false_when_window_not_found(monkeypatch):
@@ -53,7 +53,7 @@ def test_toggle_remote_control_returns_false_when_window_not_found(monkeypatch):
     calls = []
     ok = actions.toggle_remote_control("/proj/a", run=_fake_run(calls), pause=_fake_pause([]))
     assert ok is False
-    assert calls == []
+    assert [c for c in calls if c[0] == "xdotool"] == []
 
 
 def test_actions_degrade_cleanly_without_xdotool(monkeypatch):
@@ -91,4 +91,37 @@ def test_compact_session_returns_false_when_window_not_found(monkeypatch):
     monkeypatch.setattr(actions, "focus_window", lambda cwd, **kw: False)
     calls = []
     assert actions.compact_session("/proj/a", run=_fake_run(calls), pause=_fake_pause([])) is False
-    assert calls == []
+    assert [c for c in calls if c[0] == "xdotool"] == []
+
+
+class _LoginctlRun:
+    def __init__(self, locked):
+        self.locked = locked
+
+    def __call__(self, cmd, **kwargs):
+        class R:
+            stdout = ""
+        r = R()
+        if cmd[:2] == ["loginctl", "list-sessions"]:
+            r.stdout = " 3 1000 aaron seat0 tty2\n"
+        elif cmd[:2] == ["loginctl", "show-session"]:
+            r.stdout = f"Display=:1\nLockedHint={'yes' if self.locked else 'no'}\n"
+        return r
+
+
+def test_display_locked_parses_loginctl(monkeypatch):
+    monkeypatch.setattr(actions.shutil, "which", lambda name: "/usr/bin/loginctl")
+    monkeypatch.setenv("DISPLAY", ":1")
+    assert actions._display_locked(run=_LoginctlRun(True)) is True
+    assert actions._display_locked(run=_LoginctlRun(False)) is False
+
+
+def test_actions_refuse_when_display_locked(monkeypatch):
+    monkeypatch.setattr(actions, "_display_locked", lambda **kw: True)
+    monkeypatch.setattr(actions, "focus_window", lambda cwd, **kw: True)
+    monkeypatch.setattr(actions.shutil, "which", lambda name: "/usr/bin/xdotool")
+    calls = []
+    assert actions.compact_session("/proj/a", run=_fake_run(calls), pause=_fake_pause([])) is False
+    assert actions.restart_session("/proj/a", run=_fake_run(calls), pause=_fake_pause([])) is False
+    assert actions.toggle_remote_control("/proj/a", run=_fake_run(calls), pause=_fake_pause([])) is False
+    assert calls == []  # nothing typed into the lock screen

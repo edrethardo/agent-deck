@@ -7,6 +7,7 @@ registered command or harmlessly does nothing — no free-typing into editors.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -14,6 +15,33 @@ import time
 from .focus import focus_window
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _display_locked(*, run=subprocess.run) -> bool:
+    """True if the X session owning our DISPLAY is locked.
+
+    A locked session sends ALL synthetic input to the screen locker — the
+    injected keystrokes would never reach VS Code (and stray characters
+    could land in the password field). Refusing is the only honest option."""
+    if shutil.which("loginctl") is None:
+        return False
+    display = os.environ.get("DISPLAY", "")
+    try:
+        out = run(["loginctl", "list-sessions", "--no-legend"],
+                  capture_output=True, text=True, timeout=3).stdout or ""
+        for line in out.splitlines():
+            parts = line.split()
+            if not parts:
+                continue
+            props = run(["loginctl", "show-session", parts[0],
+                         "-p", "Display", "-p", "LockedHint"],
+                        capture_output=True, text=True, timeout=3).stdout or ""
+            vals = dict(p.split("=", 1) for p in props.split() if "=" in p)
+            if vals.get("Display") and (not display or vals["Display"] == display):
+                return vals.get("LockedHint") == "yes"
+    except Exception:
+        return False  # can't tell — let the injection try
+    return False
 
 
 def _xdo(args: list[str], *, run=subprocess.run) -> None:
@@ -39,6 +67,9 @@ def _palette(command_text: str, *, run=subprocess.run, pause=time.sleep) -> bool
 
 def restart_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     """Reload the session's VS Code window (hooks load fresh on reload)."""
+    if _display_locked(run=run):
+        _LOGGER.warning("desktop is locked — pad actions need an unlocked session")
+        return False
     if not focus_window(cwd):
         return False
     pause(0.4)
@@ -47,6 +78,9 @@ def restart_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
 
 def _slash_command(cwd: str, command: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     """Focus the Claude input via its palette command, then send a slash command."""
+    if _display_locked(run=run):
+        _LOGGER.warning("desktop is locked — pad actions need an unlocked session")
+        return False
     if not focus_window(cwd):
         return False
     pause(0.4)
