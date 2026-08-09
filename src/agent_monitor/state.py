@@ -163,9 +163,9 @@ class SessionRegistry:
             info = infos.get(sess.pid)
             if info is None:
                 continue
-            new = (info.percent, info.model, info.effort)
-            if (sess.context_pct, sess.model, sess.effort) != new:
-                sess.context_pct, sess.model, sess.effort = new
+            new = (info.percent, info.model, info.effort, info.question)
+            if (sess.context_pct, sess.model, sess.effort, sess.question) != new:
+                sess.context_pct, sess.model, sess.effort, sess.question = new
                 changed = True
         return changed
 

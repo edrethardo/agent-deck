@@ -26,6 +26,8 @@ FINISHED_COLOR = (0, 255, 0)  # green: recently finished a task (decays to idle)
 
 
 def _color_for(sess: Session) -> tuple[int, int, int]:
+    if sess.question:
+        return COLORS[Status.WAITING]  # a human is being asked — red wins
     fixed = COLORS.get(sess.status)
     if fixed is not None:
         return fixed

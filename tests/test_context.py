@@ -262,3 +262,60 @@ def test_fetch_usage_util_refuses_expired_or_missing_creds(tmp_path):
     creds.write_text(json.dumps({"claudeAiOauth": {
         "accessToken": "x", "expiresAt": 1000}}))  # long expired
     assert context.fetch_usage_util(creds_path=creds) is None
+
+
+def _ask(tool="AskUserQuestion", resolved=False, tail_extra=()):
+    entries = [
+        _assistant(2, 50_000, 0),
+        {"type": "user", "isSidechain": False, "message": {"role": "user", "content": "hi"}},
+        {"type": "assistant", "isSidechain": False, "effort": "high", "message": {
+            "model": "claude-fable-5",
+            "usage": {"input_tokens": 2, "cache_read_input_tokens": 60_000,
+                      "cache_creation_input_tokens": 0, "output_tokens": 5},
+            "content": [{"type": "tool_use", "id": "tu_1", "name": tool, "input": {}}],
+        }},
+    ]
+    if resolved:
+        entries.append({"type": "user", "isSidechain": False, "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "tu_1", "content": "answer"}]}})
+    entries.extend(tail_extra)
+    return entries
+
+
+def test_pending_question_detected(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", _ask())
+    assert context.read_context(path).question is True
+
+
+def test_pending_plan_approval_detected(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", _ask(tool="ExitPlanMode"))
+    assert context.read_context(path).question is True
+
+
+def test_answered_question_not_pending(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", _ask(resolved=True))
+    assert context.read_context(path).question is False
+
+
+def test_running_tool_is_not_a_question(tmp_path):
+    # unresolved Bash/Agent at the tail = tool still running, NOT blocked
+    path = _write_transcript(tmp_path, "-p", "s", _ask(tool="Bash"))
+    assert context.read_context(path).question is False
+
+
+def test_bookkeeping_entries_do_not_hide_a_pending_question(tmp_path):
+    # ai-title / last-prompt / queue-operation lines appear while pending
+    extra = ({"type": "last-prompt"}, {"type": "ai-title"},
+             {"type": "queue-operation"},
+             {"type": "assistant", "isSidechain": True, "message": {"role": "assistant"}})
+    path = _write_transcript(tmp_path, "-p", "s", _ask(tail_extra=extra))
+    assert context.read_context(path).question is True
+
+
+def test_interrupted_question_not_pending(tmp_path):
+    # Esc during the question leaves no tool_result, only a user text entry
+    extra = ({"type": "user", "isSidechain": False, "message": {
+        "role": "user", "content": "[Request interrupted by user]"}},)
+    path = _write_transcript(tmp_path, "-p", "s", _ask(tail_extra=extra))
+    assert context.read_context(path).question is False

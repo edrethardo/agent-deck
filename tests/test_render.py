@@ -151,3 +151,9 @@ def test_overlay_marks_high_context():
     a = _sess(0)
     a.model, a.effort, a.context_pct = "opus-5", "xhigh", 91
     assert overlay_info([a])[0] == "opus-5 xhigh\nctx 91% !"
+
+
+def test_pending_question_lights_red():
+    sess = _sess(0, Status.BUSY)
+    sess.question = True
+    assert led_colors([sess])[0:3] == [int(255 * BRIGHTNESS), 0, 0]

@@ -27,6 +27,9 @@ class Session:
     context_pct: int | None = None  # % of the context window used (from the transcript)
     model: str = ""   # short model name, e.g. "fable-5"
     effort: str = ""  # reasoning effort, e.g. "xhigh"
+    question: bool = False  # transcript shows an unanswered AskUserQuestion/plan
+    #                         approval — renders red like WAITING (VS Code fires
+    #                         no Notification hook, this path needs no hooks)
 
     def to_dict(self) -> dict:
         return {
@@ -42,6 +45,7 @@ class Session:
             "context_pct": self.context_pct,
             "model": self.model,
             "effort": self.effort,
+            "question": self.question,
         }
 
     @classmethod
@@ -59,6 +63,7 @@ class Session:
             context_pct=d.get("context_pct"),
             model=str(d.get("model", "")),
             effort=str(d.get("effort", "")),
+            question=bool(d.get("question", False)),
         )
 
 
@@ -80,4 +85,11 @@ def status_for_event(event: str, message: str | None, current: Status | None) ->
         if any(marker in text for marker in IDLE_MARKERS):
             return None
         return Status.WAITING
+    if event == "PermissionRequest":
+        return Status.WAITING
+    if event == "PermissionDenied":
+        return Status.BUSY  # Claude received the denial and keeps working
+    if event == "PostToolUse":
+        # Fires after an approved tool ran — only ever CLEARS a waiting state.
+        return Status.BUSY if current is Status.WAITING else None
     return None

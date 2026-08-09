@@ -132,3 +132,11 @@ def test_high_context_marked():
          "slot": 0, "since": 40.0, "model": "opus-5", "context_pct": 91}]}
     out = render_status(state, now=100.0, daemon_up=True, width=120)
     assert "91%!" in out
+
+
+def test_question_shows_waiting_label():
+    state = {"sessions": [
+        {"session_id": "a", "cwd": "/p/x", "pid": 1, "status": "busy",
+         "slot": 0, "since": 40.0, "question": True}]}
+    out = render_status(state, now=100.0, daemon_up=True, width=120)
+    assert "waiting for input" in out

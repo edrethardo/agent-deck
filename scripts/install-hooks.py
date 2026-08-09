@@ -4,7 +4,14 @@ import json
 import shutil
 from pathlib import Path
 
-EVENTS = ["SessionStart", "UserPromptSubmit", "Notification", "Stop", "SessionEnd"]
+EVENTS = [
+    "SessionStart", "UserPromptSubmit", "Notification", "Stop", "SessionEnd",
+    # Permission-dialog lifecycle — the reliable "red" path (the VS Code
+    # extension never fires Notification for its inline permission prompts).
+    # PostToolUse only clears a waiting state after an approval. Unknown event
+    # names are ignored by older Claude Code versions, so this degrades safely.
+    "PermissionRequest", "PermissionDenied", "PostToolUse",
+]
 SETTINGS = Path.home() / ".claude" / "settings.json"
 COMMAND = str(Path.home() / ".local" / "bin" / "agent-monitor") + " hook"
 

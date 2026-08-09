@@ -33,6 +33,14 @@ class ContextInfo:
     percent: int  # of the model's context window
     model: str    # short display form, e.g. "fable-5"
     effort: str   # reasoning effort, "" if not recorded
+    question: bool = False  # an AskUserQuestion/plan approval awaits the user
+
+
+# Tools that block on USER input by design — an unresolved call at the tail of
+# the transcript means the session is waiting for a human. Ordinary tools
+# (Bash, Agent, ...) stay unresolved for minutes while simply RUNNING, so they
+# must never count.
+BLOCKING_TOOLS = frozenset({"AskUserQuestion", "ExitPlanMode"})
 
 
 @dataclass(frozen=True)
@@ -96,15 +104,20 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
         return None
     last: tuple[int, str, str] | None = None  # (tokens, model, effort)
     max_tokens = 0
+    tail_entry: dict | None = None  # last main-chain user/assistant entry
     for raw in tail.splitlines():
         try:
             entry = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
-        if not isinstance(entry, dict) or entry.get("type") != "assistant":
-            continue
-        if entry.get("isSidechain"):
+        if not isinstance(entry, dict) or entry.get("isSidechain"):
             continue  # subagent turn — not the main conversation's context
+        if entry.get("type") in ("user", "assistant"):
+            # bookkeeping lines (ai-title, queue-operation, ...) don't advance
+            # the conversation and must not mask a pending question
+            tail_entry = entry
+        if entry.get("type") != "assistant":
+            continue
         message = entry.get("message") or {}
         usage = message.get("usage") or {}
         model = str(message.get("model") or "")
@@ -118,6 +131,17 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
         last = (tokens, model, str(entry.get("effort") or ""))
     if last is None:
         return None
+    question = False
+    if tail_entry is not None and tail_entry.get("type") == "assistant":
+        # A resolved call would be followed by a user(tool_result) entry, an
+        # interrupted one by a user text entry — so pending means: the very
+        # last conversation entry is an assistant message calling a tool that
+        # only a human can answer.
+        for blk in (tail_entry.get("message") or {}).get("content") or []:
+            if isinstance(blk, dict) and blk.get("type") == "tool_use" \
+                    and blk.get("name") in BLOCKING_TOOLS:
+                question = True
+                break
     tokens, model, effort = last
     short = model_short(model)
     large = "[1m]" in model or max_tokens > DEFAULT_WINDOW or (large_for is not None and short == large_for)
@@ -126,6 +150,7 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
         percent=min(100, round(tokens * 100 / window)),
         model=short,
         effort=effort,
+        question=question,
     )
 
 

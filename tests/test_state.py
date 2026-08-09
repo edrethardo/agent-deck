@@ -266,3 +266,14 @@ def test_update_context_sets_fields_and_reports_change():
     assert reg.update_context({5: None}) is False
     assert reg.update_context({}) is False
     assert s.context_pct == 42
+
+
+def test_update_context_adopts_question_flag():
+    from agent_monitor.context import ContextInfo
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    assert reg.update_context({5: ContextInfo(10, "fable-5", "high", question=True)}) is True
+    assert reg.sessions()[0].question is True
+    assert reg.update_context({5: ContextInfo(10, "fable-5", "high", question=False)}) is True
+    assert reg.sessions()[0].question is False

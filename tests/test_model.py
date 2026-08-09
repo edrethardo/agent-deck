@@ -64,3 +64,20 @@ def test_session_context_fields_default_and_roundtrip():
 
     old = Session.from_dict({"session_id": "b", "status": "busy"})
     assert (old.context_pct, old.model, old.effort) == (None, "", "")
+
+
+def test_permission_hook_events():
+    assert status_for_event("PermissionRequest", None, Status.BUSY) is Status.WAITING
+    assert status_for_event("PermissionDenied", None, Status.WAITING) is Status.BUSY
+    # PostToolUse only ever CLEARS a waiting state (approval granted, tool ran)
+    assert status_for_event("PostToolUse", None, Status.WAITING) is Status.BUSY
+    assert status_for_event("PostToolUse", None, Status.BUSY) is None
+    assert status_for_event("PostToolUse", None, Status.AVAILABLE) is None
+
+
+def test_session_question_roundtrip():
+    sess = Session("a", "/p", 1, Status.BUSY, 0, 1.0)
+    assert sess.question is False
+    sess.question = True
+    assert Session.from_dict(sess.to_dict()).question is True
+    assert Session.from_dict({"session_id": "b", "status": "busy"}).question is False
