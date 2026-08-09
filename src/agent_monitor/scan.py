@@ -101,7 +101,7 @@ def claude_processes() -> dict[int, str]:
     return result
 
 
-ANTHROPIC_NET_PREFIX = "160.79."
+
 
 
 def _socket_inodes(pid: int) -> set[str]:
@@ -119,13 +119,18 @@ def _socket_inodes(pid: int) -> set[str]:
     return inodes
 
 
-def _established_remote_ips(inodes: set[str], tcp_path: str = "/proc/net/tcp") -> list[str]:
-    """Remote IPv4 addresses of ESTABLISHED sockets owned by `inodes`."""
-    ips = []
+# 2607:6bc0::/32 (Anthropic) — first 128-bit word of /proc/net/tcp6 addresses
+# is stored as a little-endian 32-bit word: 26 07 6b c0 -> "c06b0726".
+ANTHROPIC_V6_FIRST_WORD = "c06b0726"
+
+
+def _established_v6_first_words(inodes: set[str], tcp6_path: str = "/proc/net/tcp6") -> list[str]:
+    """First address words of ESTABLISHED IPv6 remotes owned by `inodes`."""
+    words = []
     try:
-        lines = Path(tcp_path).read_text().splitlines()[1:]
+        lines = Path(tcp6_path).read_text().splitlines()[1:]
     except OSError:
-        return ips
+        return words
     for line in lines:
         parts = line.split()
         if len(parts) < 10 or parts[3] != "01":  # 01 = ESTABLISHED
@@ -133,16 +138,17 @@ def _established_remote_ips(inodes: set[str], tcp_path: str = "/proc/net/tcp") -
         if parts[9] not in inodes:
             continue
         hex_ip = parts[2].split(":")[0]
-        if len(hex_ip) == 8:
-            octets = [str(int(hex_ip[i:i + 2], 16)) for i in (6, 4, 2, 0)]
-            ips.append(".".join(octets))
-    return ips
+        if len(hex_ip) == 32:
+            words.append(hex_ip[:8].lower())
+    return words
 
 
 def has_remote_control(pid: int) -> bool:
-    """True if the process holds an established connection into Anthropic's
-    network (160.79.0.0/16) — the remote-control relay does, even when idle."""
+    """True if the process holds an established IPv6 connection into
+    2607:6bc0::/32 — the remote-control relay. Plain API keep-alives use
+    IPv4 (160.79.x) and survive a remote-control OFF toggle, so IPv4 is
+    deliberately NOT counted (verified empirically 2026-08-09)."""
     inodes = _socket_inodes(pid)
     if not inodes:
         return False
-    return any(ip.startswith(ANTHROPIC_NET_PREFIX) for ip in _established_remote_ips(inodes))
+    return ANTHROPIC_V6_FIRST_WORD in _established_v6_first_words(inodes)

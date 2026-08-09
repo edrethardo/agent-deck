@@ -43,26 +43,29 @@ def test_scan_keeps_topmost_match(monkeypatch):
     assert scan.claude_processes() == {100: "/proj/100"}
 
 
-def test_established_remote_ips_parses_proc_net_tcp(tmp_path):
-    content = (
-        "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
-        "   0: 0100007F:1F90 0A684FA0:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 111\n"
-    )
-    # rem_address 0A684FA0 is little-endian per 32-bit word -> 160.79.104.10
-    p = tmp_path / "tcp"
-    p.write_text(content)
-    assert scan._established_remote_ips({"111"}, tcp_path=str(p)) == ["160.79.104.10"]
+V6_HEADER = "  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+V6_RELAY = "C06B072600000000000000001000000000000000"[:32]  # 2607:6bc0::10
 
 
-def test_established_remote_ips_ignores_non_established_and_other_inodes(tmp_path):
+def test_established_v6_words_parse_relay_connection(tmp_path):
     content = (
-        "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
-        "   0: 0100007F:1F90 0A684FA0:01BB 06 00000000:00000000 00:00000000 00000000  1000        0 111\n"
-        "   1: 0100007F:1F90 0A684FA0:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 222\n"
+        V6_HEADER
+        + f"   0: 00000000000000000000000000000000:1F90 {V6_RELAY}:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 111\n"
     )
-    p = tmp_path / "tcp"
+    p = tmp_path / "tcp6"
     p.write_text(content)
-    assert scan._established_remote_ips({"111"}, tcp_path=str(p)) == []
+    assert scan._established_v6_first_words({"111"}, tcp6_path=str(p)) == ["c06b0726"]
+
+
+def test_established_v6_words_ignore_non_established_and_other_inodes(tmp_path):
+    content = (
+        V6_HEADER
+        + f"   0: 00000000000000000000000000000000:1F90 {V6_RELAY}:01BB 06 00000000:00000000 00:00000000 00000000  1000        0 111\n"
+        + f"   1: 00000000000000000000000000000000:1F90 {V6_RELAY}:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 222\n"
+    )
+    p = tmp_path / "tcp6"
+    p.write_text(content)
+    assert scan._established_v6_first_words({"111"}, tcp6_path=str(p)) == []
 
 
 def test_has_remote_control_false_for_dead_pid():
