@@ -336,18 +336,19 @@ sensor:
           id(info_until) = millis() + 1500;
           id(oled).update();
 
-  # Right knob (encoder 2: A=GPIO33 B=GPIO32, switch GPIO27 — stock
-  # keyboard_config.h): steps through the occupied keys hands-free, showing
-  # each session's overlay; its button compacts the session on display.
+  # Right knob (encoder 2: GPIO33/32, switch GPIO27 — stock keyboard_config.h;
+  # A/B swapped vs. the stock defines because the bench showed clockwise
+  # decrementing): steps through the occupied keys hands-free, showing each
+  # session's overlay; its button compacts the session on display.
   - platform: rotary_encoder
     id: knob_right
     pin_a:
-      number: GPIO33
+      number: GPIO32
       mode:
         input: true
         pullup: true
     pin_b:
-      number: GPIO32
+      number: GPIO33
       mode:
         input: true
         pullup: true
