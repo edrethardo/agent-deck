@@ -10,7 +10,7 @@ Run half a dozen Claude Code sessions in parallel and you lose track of which on
 - 🔵 **blue** — session is idle and **remote-controllable**: pick it up from your phone
 - ⚪ **white** — session is idle but only reachable at the PC (includes sessions from before the hooks were installed — reload those to get live status)
 
-The OLED shows a kraken until you need it. Press a key to see which project lives there; double-press to **jump straight to that session's window** on your desktop; hold a key to rearrange the board; the left knob dims the LEDs.
+The OLED idles on your **account usage** — the same 5-hour and weekly percentages `/usage` shows, as bars you can read across the desk. Press a key to see which project lives there plus its **model, reasoning effort and context usage** (handy on the phone, which shows none of those); double-press to **jump straight to that session's window** on your desktop; hold a key to rearrange the board; the left knob dims the LEDs.
 
 No cloud, no MQTT broker, no Home Assistant — your PC talks to the pad directly over the LAN via ESPHome's encrypted native API.
 
@@ -95,18 +95,20 @@ Without the config file the daemon runs CLI-only — useful before the hardware 
 
 | Gesture | Effect |
 |---|---|
-| **Press** a key | OLED shows `key N` + that session's project name for 3 s |
+| **Press** a key | OLED shows `key N`, the project name, model + effort (e.g. `fable-5 xhigh`) and context usage (`ctx 17%`) for 3 s |
 | **Double-press** (<400 ms) | Focuses that session's window on your desktop (VS Code windows match best) |
 | **Hold** (≥600 ms) | Pick up the session — the key blinks; **click another key** to move/swap it there; same key or 10 s cancels |
 | **Left knob turn** | LED brightness in 5 % steps (persists across reboots) — or scrolls the menu while it's open |
 | **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked) and **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly). Turn to choose, press to execute; any key or 8 s cancels |
 
-The OLED idles on the DeepDeck kraken; sessions keep their key for their whole lifetime, across daemon restarts and session reloads.
+The OLED idles on the account usage screen: `5h` (current session window) and `7d` (weekly) with progress bars and reset times, read from the cache Claude Code keeps for its own `/usage` command. When no usage data is available the DeepDeck kraken takes over. Sessions keep their key for their whole lifetime, across daemon restarts and session reloads.
+
+Session details (model, effort, context %) come from Claude Code's own transcripts — read-only, refreshed every 10 s. The context window size is inferred (200k, or 1m when the model tag, the settings default, or an observed >200k turn proves it), so a fresh low-context session on a 1m model briefly shows a conservative (too high) percentage.
 
 ## CLI
 
 ```bash
-agent-monitor status           # colored table: key, project, status, RC flag, duration
+agent-monitor status           # colored table: key, project, status, RC, model+effort, context %, duration
 agent-monitor status --watch   # live view
 agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ```
@@ -120,12 +122,13 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 - **More than 16 sessions** — extras get no key (overflow) but stay visible in the CLI; real sessions evict blue scanned entries when keys run short.
 - **Left knob does nothing** — encoders 1/2 may be swapped on your build; change pins 25/26 to 33/32 in `firmware/deepdeck.yaml` and reflash OTA.
 - **Remote-control OFF doesn't change the color** (when toggled *inside* the session) — `/remote-control off` leaves the relay socket open and no external trace, so the detector only catches it after a session restart. Toggling **via the pad menu** is exact and instant: the daemon initiated it, so it pins the known state itself until the session restarts.
+- **The usage screen shows `--%`** — that limit's reset time passed but Claude Code hasn't refreshed its usage cache yet (it does so on its own schedule while sessions run). The daemon refuses to display a number it knows is outdated; the bar returns with the next refresh.
 - **Keys never turn red in VS Code** — known upstream limitation (verified empirically 2026-08): the VS Code extension's inline permission dialog does not fire Claude Code's `Notification` hook, focused or not, so the daemon never learns the session is blocked. Terminal (`claude` CLI) sessions turn red as designed. If a future extension version adds the hook, red starts working with no changes here — `journalctl --user -u agent-monitor | grep notification` will show the events arriving.
 
 ## Development
 
 ```bash
-uv run pytest -q                                # 98 tests
+uv run pytest -q                                # 145 tests
 uvx esphome config firmware/deepdeck.yaml       # firmware schema check
 uvx esphome compile firmware/deepdeck.yaml      # full build
 ```

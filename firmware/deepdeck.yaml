@@ -38,12 +38,16 @@ api:
         lines: string[]
         names: string[]
         flash: int[]
+        info: string[]
+        usage: int[]
       then:
         - lambda: |-
             id(led_colors).assign(colors.begin(), colors.end());
             id(oled_lines).assign(lines.begin(), lines.end());
             id(key_names).assign(names.begin(), names.end());
             id(flash_flags).assign(flash.begin(), flash.end());
+            id(key_info).assign(info.begin(), info.end());
+            id(usage_pcts).assign(usage.begin(), usage.end());
         - light.turn_on:
             id: key_leds
             brightness: 100%
@@ -70,6 +74,14 @@ globals:
     type: std::vector<int>
     restore_value: no
     initial_value: 'std::vector<int>(16, 0)'
+  - id: key_info
+    type: std::vector<std::string>
+    restore_value: no
+    initial_value: 'std::vector<std::string>(16)'
+  - id: usage_pcts
+    type: std::vector<int>
+    restore_value: no
+    initial_value: 'std::vector<int>{}'
   - id: overlay_slot
     type: int
     restore_value: no
@@ -385,6 +397,21 @@ display:
           it.print(0, 0, id(font8), header);
           std::string name = (slot < (int) id(key_names).size()) ? id(key_names)[slot] : std::string();
           it.print(0, 16, id(font8), name.empty() ? "(free)" : name.c_str());
+          // Extra per-session lines from the daemon (model + effort, context %),
+          // '\n'-separated in key_info.
+          std::string info = (slot < (int) id(key_info).size()) ? id(key_info)[slot] : std::string();
+          int y = 30;
+          size_t start = 0;
+          while (start < info.size() && y <= 54) {
+            size_t nl = info.find('\n', start);
+            std::string line = info.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
+            if (!line.empty()) {
+              it.print(0, y, id(font8), line.c_str());
+              y += 12;
+            }
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+          }
           return;
         }
         id(overlay_slot) = -1;  // expired: clear so a millis() wrap cannot resurrect it
@@ -396,9 +423,23 @@ display:
         }
         id(info_until) = 0;
       }
-      // Idle view is the kraken — the LEDs carry the status; session names
-      // appear on key press. Drawn fully inside the BLUE zone of the two-tone
-      // panel (top 16 rows are physically yellow); the yellow band stays a
-      // header strip for overlay/menu/info titles. oled_lines stays in the
-      // protocol should a list view ever return.
+      // Idle view: account usage (what /usage shows) — text via oled_lines,
+      // bar fill via usage_pcts (-1 = stale, no bar). The header sits in the
+      // physically YELLOW top 16 rows of the two-tone panel; bars live in the
+      // blue zone. Without usage data the kraken returns.
+      if (!id(oled_lines).empty()) {
+        it.print(0, 0, id(font8), "Claude usage");
+        int y = 20;
+        for (size_t i = 0; i < id(oled_lines).size() && y <= 44; i++) {
+          it.print(0, y, id(font8), id(oled_lines)[i].c_str());
+          int pct = (i < id(usage_pcts).size()) ? id(usage_pcts)[i] : -1;
+          if (pct >= 0) {
+            int w = (124 * (pct > 100 ? 100 : pct)) / 100;
+            it.rectangle(0, y + 11, 126, 6);
+            if (w > 0) it.filled_rectangle(1, y + 12, w > 124 ? 124 : w, 4);
+          }
+          y += 22;
+        }
+        return;
+      }
       it.image(44, 16, id(kraken_logo));

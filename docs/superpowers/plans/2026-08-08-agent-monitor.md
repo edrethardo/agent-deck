@@ -1995,3 +1995,12 @@ Start several Claude sessions in parallel (different projects). Check:
 git add -A
 git commit -m "chore: hardware bring-up complete"
 ```
+
+---
+
+### Task 20: Context %, model, effort on the overlay; account usage as idle screen (added on Aaron's request, 2026-08-09)
+
+New module `context.py` reads Claude Code's own files (read-only): `~/.claude/sessions/<pid>.json` maps the tracked PID to sessionId/cwd, the transcript tail's last main-thread assistant entry yields context tokens (`input + cache_read + cache_creation`), model and `effort`, and `~/.claude.json → cachedUsageUtilization` yields the 5h/7d account limits `/usage` shows. `Session` gains `context_pct/model/effort`; the daemon polls both via a 10 s `_ctx_loop`. `set_state` gains `info: string[]` ('\n'-separated overlay lines) and `usage: int[]` (bar fills, −1 = stale/no bar); the previously idle-unused `lines` now carries the usage text. Firmware: overlay prints model+effort and `ctx N%` under the project name; the idle screen renders "Claude usage" with bars, kraken as no-data fallback. CLI status gains Model and Ctx columns.
+
+> **Finding (window inference):** the 1m context beta rides an HTTP header — transcripts record a plain model string even at 700k+ tokens. The window is therefore inferred: `[1m]` tag, any observed turn >200k tokens, or the session running the settings-pinned 1m default model ⇒ 1m; else 200k (conservative, self-corrects once evidence appears).
+> **Finding (usage staleness):** `cachedUsageUtilization` refreshes on Claude Code's own schedule (~40 min gaps observed); once a limit's reset time passes, the cached percentage is knowably wrong → shown as `--%` with no bar until the cache refreshes.

@@ -50,3 +50,17 @@ def test_session_remote_defaults_false_and_roundtrips():
     assert Session.from_dict(d).remote is True
 
     assert Session.from_dict({"session_id": "b", "status": "busy"}).remote is False
+
+
+def test_session_context_fields_default_and_roundtrip():
+    sess = Session("a", "/proj/a", 100, Status.AVAILABLE, 0, 1.0)
+    assert (sess.context_pct, sess.model, sess.effort) == (None, "", "")
+
+    sess.context_pct, sess.model, sess.effort = 52, "fable-5", "xhigh"
+    d = sess.to_dict()
+    assert (d["context_pct"], d["model"], d["effort"]) == (52, "fable-5", "xhigh")
+    restored = Session.from_dict(d)
+    assert (restored.context_pct, restored.model, restored.effort) == (52, "fable-5", "xhigh")
+
+    old = Session.from_dict({"session_id": "b", "status": "busy"})
+    assert (old.context_pct, old.model, old.effort) == (None, "", "")

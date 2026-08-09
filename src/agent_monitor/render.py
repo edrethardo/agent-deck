@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from .context import UsageLimit
 from .model import Session, Status
 
 NUM_KEY_LEDS = 16
@@ -30,14 +31,6 @@ def _color_for(sess: Session) -> tuple[int, int, int]:
     if sess.status is Status.AVAILABLE and sess.finished:
         return FINISHED_COLOR
     return IDLE_REMOTE_COLOR if sess.remote else IDLE_LOCAL_COLOR
-STATUS_CHAR: dict[Status, str] = {
-    Status.AVAILABLE: "+",
-    Status.BUSY: "~",
-    Status.WAITING: "!",
-    Status.UNKNOWN: "?",
-}
-
-
 def led_colors(sessions: list[Session]) -> list[int]:
     out = [0] * (NUM_KEY_LEDS * 3)
     for sess in sessions:
@@ -57,14 +50,40 @@ def project_name(cwd: str) -> str:
     return os.path.basename(cwd.rstrip("/")) or cwd or "?"
 
 
-def oled_lines(sessions: list[Session]) -> list[str]:
-    lines = []
+def usage_lines(limits: list[UsageLimit]) -> list[str]:
+    """Idle-screen text per account limit (rides the `lines` protocol slot).
+
+    A stale limit (reset time passed, cache not yet refreshed) shows "--%"
+    instead of a number that is knowably wrong."""
+    out = []
+    for lim in limits:
+        if lim.stale:
+            out.append(f"{lim.label}  --%")
+        elif lim.resets_at:
+            out.append(f"{lim.label} {lim.percent:>3}% -> {lim.resets_at}")
+        else:
+            out.append(f"{lim.label} {lim.percent:>3}%")
+    return out[:MAX_OLED_LINES]
+
+
+def usage_percents(limits: list[UsageLimit]) -> list[int]:
+    """Bar fill per usage line; -1 = draw no bar (stale)."""
+    return [-1 if lim.stale else max(0, min(100, lim.percent)) for lim in limits]
+
+
+def overlay_info(sessions: list[Session]) -> list[str]:
+    """Extra overlay lines per key slot ('\\n'-separated): model+effort, context %."""
+    out = [""] * NUM_KEY_LEDS
     for sess in sessions:
         if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
             continue
-        name = project_name(sess.cwd)[:12]
-        lines.append(f"{sess.slot + 1:>2} {name:<12} {STATUS_CHAR[sess.status]}")
-    return lines[:MAX_OLED_LINES]
+        parts = []
+        if sess.model:
+            parts.append(f"{sess.model} {sess.effort}".strip())
+        if sess.context_pct is not None:
+            parts.append(f"ctx {sess.context_pct}%")
+        out[sess.slot] = "\n".join(parts)
+    return out
 
 
 MAX_NAME_LEN = 25  # OLED fits ~25 chars of the size-8 mono font per line

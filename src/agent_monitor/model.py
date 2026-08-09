@@ -24,6 +24,9 @@ class Session:
     rc_manual: bool = False  # remote flag was set by a pad toggle — detection can't
     #                          see in-process off-toggles, so the manual value wins
     #                          until the session restarts
+    context_pct: int | None = None  # % of the context window used (from the transcript)
+    model: str = ""   # short model name, e.g. "fable-5"
+    effort: str = ""  # reasoning effort, e.g. "xhigh"
 
     def to_dict(self) -> dict:
         return {
@@ -36,6 +39,9 @@ class Session:
             "remote": self.remote,
             "finished": self.finished,
             "rc_manual": self.rc_manual,
+            "context_pct": self.context_pct,
+            "model": self.model,
+            "effort": self.effort,
         }
 
     @classmethod
@@ -50,6 +56,9 @@ class Session:
             remote=bool(d.get("remote", False)),
             finished=bool(d.get("finished", False)),
             rc_manual=bool(d.get("rc_manual", False)),
+            context_pct=d.get("context_pct"),
+            model=str(d.get("model", "")),
+            effort=str(d.get("effort", "")),
         )
 
 

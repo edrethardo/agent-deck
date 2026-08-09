@@ -1,5 +1,15 @@
+from agent_monitor.context import UsageLimit
 from agent_monitor.model import Session, Status
-from agent_monitor.render import BRIGHTNESS, NUM_KEY_LEDS, flash_flags, key_names, led_colors, oled_lines
+from agent_monitor.render import (
+    BRIGHTNESS,
+    NUM_KEY_LEDS,
+    flash_flags,
+    key_names,
+    led_colors,
+    overlay_info,
+    usage_lines,
+    usage_percents,
+)
 
 
 def _sess(slot, status=Status.AVAILABLE, cwd="/home/aaron/code/myproj", sid="a"):
@@ -8,7 +18,6 @@ def _sess(slot, status=Status.AVAILABLE, cwd="/home/aaron/code/myproj", sid="a")
 
 def test_empty_registry_is_all_dark():
     assert led_colors([]) == [0] * (NUM_KEY_LEDS * 3)
-    assert oled_lines([]) == []
 
 
 def test_idle_local_session_lights_white():
@@ -34,35 +43,20 @@ def test_overflow_session_not_rendered():
     assert led_colors([_sess(None)]) == [0] * (NUM_KEY_LEDS * 3)
 
 
-def test_oled_line_format():
-    (line,) = oled_lines([_sess(2, Status.WAITING)])
-    assert line == " 3 myproj       !"
-
-
-def test_oled_truncates_to_eight_lines():
-    sessions = [_sess(i, sid=f"s{i}") for i in range(10)]
-    assert len(oled_lines(sessions)) == 8
-
-
-def test_busy_session_lights_orange_with_tilde():
+def test_busy_session_lights_orange():
     colors = led_colors([_sess(1, Status.BUSY)])
     assert colors[3:6] == [int(255 * BRIGHTNESS), int(160 * BRIGHTNESS), 0]
-    (line,) = oled_lines([_sess(1, Status.BUSY)])
-    assert line == " 2 myproj       ~"
 
 
 def test_out_of_range_slot_is_skipped():
     assert led_colors([_sess(16)]) == [0] * (NUM_KEY_LEDS * 3)
     assert led_colors([_sess(-1)]) == [0] * (NUM_KEY_LEDS * 3)
-    assert oled_lines([_sess(16)]) == []
 
 
 def test_unknown_session_lights_white_when_not_remote():
     colors = led_colors([_sess(0, Status.UNKNOWN)])
     w = int(255 * BRIGHTNESS)
     assert colors[0:3] == [w, w, w]
-    (line,) = oled_lines([_sess(0, Status.UNKNOWN)])
-    assert line == " 1 myproj       ?"
 
 
 def test_flash_flags_are_all_zero():
@@ -97,3 +91,40 @@ def test_finished_session_lights_green():
     sess.finished = True
     colors = led_colors([sess])
     assert colors[0:3] == [0, int(255 * BRIGHTNESS), 0]
+
+
+def test_usage_lines_and_percents():
+    limits = [
+        UsageLimit("5h", 100, "13:40", False),
+        UsageLimit("7d", 71, "Tue 16:00", False),
+    ]
+    assert usage_lines(limits) == ["5h 100% -> 13:40", "7d  71% -> Tue 16:00"]
+    assert usage_percents(limits) == [100, 71]
+
+
+def test_usage_stale_limit_shows_placeholder_without_bar():
+    limits = [UsageLimit("5h", 100, "13:40", True)]
+    assert usage_lines(limits) == ["5h  --%"]
+    assert usage_percents(limits) == [-1]
+
+
+def test_usage_without_reset_time_has_no_arrow():
+    assert usage_lines([UsageLimit("7d", 5, "", False)]) == ["7d   5%"]
+
+
+def test_usage_empty():
+    assert usage_lines([]) == []
+    assert usage_percents([]) == []
+
+
+def test_overlay_info_per_slot():
+    a = _sess(0)
+    a.model, a.effort, a.context_pct = "fable-5", "xhigh", 52
+    b = _sess(3, sid="b")
+    b.model = "opus-5"  # context not known (yet)
+    c = _sess(5, sid="c")  # no data at all
+    info = overlay_info([a, b, c, _sess(None, sid="d")])
+    assert len(info) == 16
+    assert info[0] == "fable-5 xhigh\nctx 52%"
+    assert info[3] == "opus-5"
+    assert info[5] == ""

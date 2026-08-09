@@ -96,3 +96,18 @@ def test_finished_label_shown_green():
          "slot": 0, "since": 0.0, "finished": True}]}
     out = render_status(state, now=1.0, daemon_up=True)
     assert "finished" in out
+
+
+def test_model_and_context_columns():
+    state = {"sessions": [
+        {"session_id": "a", "cwd": "/p/x", "pid": 1, "status": "busy",
+         "slot": 0, "since": 40.0, "model": "fable-5", "effort": "xhigh",
+         "context_pct": 52},
+        {"session_id": "b", "cwd": "/p/y", "pid": 2, "status": "busy",
+         "slot": 1, "since": 40.0},  # no context data yet
+    ]}
+    out = render_status(state, now=100.0, daemon_up=True, width=120)
+    assert "fable-5 xhigh" in out
+    assert "52%" in out
+    assert "Model" in out
+    assert "Ctx" in out

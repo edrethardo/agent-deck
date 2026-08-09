@@ -11,6 +11,7 @@ def _run_daemon() -> int:
     import signal
 
     from .config import load_pad_config
+    from .context import read_usage, session_context
     from .daemon import Daemon
     from .pad import DeepDeckPad
     from .scan import claude_processes, has_remote_control
@@ -22,7 +23,8 @@ def _run_daemon() -> int:
         logging.info("no pad configured (%s) — running without hardware", paths.config_path())
     try:
         daemon = Daemon(SessionRegistry(), None, paths.state_path(), paths.socket_path(),
-                        scan_fn=claude_processes, rc_fn=has_remote_control)
+                        scan_fn=claude_processes, rc_fn=has_remote_control,
+                        ctx_fn=session_context, usage_fn=read_usage)
         pad = DeepDeckPad(
             cfg, on_focus=daemon.focus_slot, on_move=daemon.move_slot, on_action=daemon.action_slot
         ) if cfg else None
@@ -72,12 +74,14 @@ async def _test_pattern_async() -> int:
     for i in range(NUM_KEY_LEDS):
         colors = [0] * (NUM_KEY_LEDS * 3)
         colors[i * 3 + 1] = 255
-        await pad.show(colors, [f"Chase key {i + 1}"], [""] * NUM_KEY_LEDS, [0] * NUM_KEY_LEDS)
+        await pad.show(colors, [f"Chase key {i + 1}"], [""] * NUM_KEY_LEDS,
+                       [0] * NUM_KEY_LEDS, [""] * NUM_KEY_LEDS, [])
         await asyncio.sleep(0.3)
     for name, rgb in [("green", (0, 255, 0)), ("yellow", (255, 160, 0)),
                       ("red", (255, 0, 0)), ("off", (0, 0, 0))]:
         print(f"All keys: {name}")
-        await pad.show(list(rgb) * NUM_KEY_LEDS, [f"Test: {name}"], [""] * NUM_KEY_LEDS, [0] * NUM_KEY_LEDS)
+        await pad.show(list(rgb) * NUM_KEY_LEDS, [f"Test: {name}"], [""] * NUM_KEY_LEDS,
+                       [0] * NUM_KEY_LEDS, [""] * NUM_KEY_LEDS, [])
         await asyncio.sleep(1.0)
     task.cancel()
     return 0

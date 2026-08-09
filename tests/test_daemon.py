@@ -14,8 +14,8 @@ class FakePad:
     async def run(self):
         await asyncio.Event().wait()
 
-    async def show(self, colors, lines, names, flash):
-        self.shows.append((colors, lines, names, flash))
+    async def show(self, colors, lines, names, flash, info, usage):
+        self.shows.append((colors, lines, names, flash, info, usage))
 
 
 @pytest.fixture
@@ -55,11 +55,13 @@ async def test_event_updates_state_file_and_pad(paths):
     state = json.loads(state_path.read_text())
     assert state["sessions"][0]["session_id"] == "a"
     assert state["sessions"][0]["status"] == "available"
-    colors, lines, names, flash = pad.shows[-1]
+    colors, lines, names, flash, info, usage = pad.shows[-1]
     assert colors[1] > 0  # slot 0 lights up green
-    assert lines == [" 1 x            +"]
+    assert lines == []  # no usage_fn configured
     assert names[0] == "x"
     assert flash == [0] * 16
+    assert info == [""] * 16
+    assert usage == []
     await _stop(task)
 
 
@@ -204,6 +206,29 @@ async def test_scan_loop_adds_unknown_sessions(paths):
     sessions = json.loads(state_path.read_text())["sessions"]
     assert sessions[0]["session_id"] == "proc-4242"
     assert sessions[0]["status"] == "unknown"
+    await _stop(task)
+
+
+async def test_ctx_loop_updates_context_and_usage(paths):
+    from agent_monitor.context import ContextInfo, UsageLimit
+
+    state_path, sock_path = paths
+    pad = FakePad()
+    daemon = Daemon(SessionRegistry(), pad, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True,
+                    ctx_fn=lambda pid: ContextInfo(52, "fable-5", "xhigh"),
+                    usage_fn=lambda: [UsageLimit("5h", 40, "13:40", False)],
+                    ctx_interval=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event())
+    await asyncio.sleep(0.1)
+    sess = json.loads(state_path.read_text())["sessions"][0]
+    assert (sess["model"], sess["effort"], sess["context_pct"]) == ("fable-5", "xhigh", 52)
+    colors, lines, names, flash, info, usage = pad.shows[-1]
+    assert lines == ["5h  40% -> 13:40"]
+    assert usage == [40]
+    assert info[0] == "fable-5 xhigh\nctx 52%"
     await _stop(task)
 
 

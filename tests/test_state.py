@@ -250,3 +250,19 @@ def test_manual_rc_flag_pins_against_detection():
     assert reg.by_id("a").remote is False
     reg.update_remote_flags(lambda pid: True)         # lingering relay socket
     assert reg.by_id("a").remote is False             # manual value wins
+
+
+def test_update_context_sets_fields_and_reports_change():
+    from agent_monitor.context import ContextInfo
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    assert reg.update_context({5: ContextInfo(42, "fable-5", "high")}) is True
+    (s,) = reg.sessions()
+    assert (s.context_pct, s.model, s.effort) == (42, "fable-5", "high")
+    # same values again: no change
+    assert reg.update_context({5: ContextInfo(42, "fable-5", "high")}) is False
+    # unreadable transcript: keep the last known values
+    assert reg.update_context({5: None}) is False
+    assert reg.update_context({}) is False
+    assert s.context_pct == 42

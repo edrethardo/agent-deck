@@ -67,6 +67,8 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
     table.add_column("Project")
     table.add_column("Status")
     table.add_column("RC", justify="center")
+    table.add_column("Model")
+    table.add_column("Ctx", justify="right")
     table.add_column("For", justify="right")
     for sess in sessions:
         label, style = STATUS_LABEL.get(sess.get("status"), (escape(str(sess.get("status"))), ""))
@@ -74,11 +76,15 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
             label, style = "finished", "green"
         slot = sess.get("slot")
         key = "—" if slot is None else str(slot + 1)
+        model = f"{sess.get('model', '')} {sess.get('effort', '')}".strip()
+        pct = sess.get("context_pct")
         table.add_row(
             key,
             escape(project_name(sess.get("cwd", ""))),
             f"[{style}]{label}[/{style}]" if style else label,
             "✓" if sess.get("remote") else "",
+            escape(model),
+            "" if pct is None else f"{pct}%",
             format_duration(now - sess.get("since", now)),
         )
     console.print(table)

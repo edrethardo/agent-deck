@@ -153,6 +153,22 @@ class SessionRegistry:
                     changed = True
         return changed
 
+    def update_context(self, infos: dict[int, "ContextInfo | None"]) -> bool:
+        """Adopt per-PID context info. True if anything changed.
+
+        A None/missing entry keeps the last known values — a transcript
+        that is momentarily unreadable must not blank the display."""
+        changed = False
+        for sess in self._sessions.values():
+            info = infos.get(sess.pid)
+            if info is None:
+                continue
+            new = (info.percent, info.model, info.effort)
+            if (sess.context_pct, sess.model, sess.effort) != new:
+                sess.context_pct, sess.model, sess.effort = new
+                changed = True
+        return changed
+
     def set_remote_manual(self, slot: int, value: bool) -> bool:
         """Pin a session's remote flag after a pad-initiated toggle."""
         for sess in self._sessions.values():

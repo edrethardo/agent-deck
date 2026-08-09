@@ -9,7 +9,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from .render import flash_flags, key_names, led_colors, oled_lines
+from .context import ContextInfo, UsageLimit
+from .render import flash_flags, key_names, led_colors, overlay_info, usage_lines, usage_percents
 from .state import SessionRegistry
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +43,9 @@ class Daemon:
         scan_interval: float = 20.0,
         rc_fn: Callable[[int], bool] | None = None,
         rc_interval: float = 5.0,
+        ctx_fn: Callable[[int], ContextInfo | None] | None = None,
+        usage_fn: Callable[[], list[UsageLimit]] | None = None,
+        ctx_interval: float = 10.0,
     ):
         self._registry = registry
         self._pad = pad
@@ -54,6 +58,10 @@ class Daemon:
         self._scan_interval = scan_interval
         self._rc_fn = rc_fn
         self._rc_interval = rc_interval
+        self._ctx_fn = ctx_fn
+        self._usage_fn = usage_fn
+        self._ctx_interval = ctx_interval
+        self._usage: list[UsageLimit] = []
         self._refresh_lock = asyncio.Lock()
         self.ready = asyncio.Event()
 
@@ -114,6 +122,8 @@ class Daemon:
             tasks.append(asyncio.create_task(self._scan_loop()))
         if self._rc_fn is not None:
             tasks.append(asyncio.create_task(self._rc_loop()))
+        if self._ctx_fn is not None or self._usage_fn is not None:
+            tasks.append(asyncio.create_task(self._ctx_loop()))
         for task in tasks:
             task.add_done_callback(_log_if_died)
         self.ready.set()
@@ -198,7 +208,12 @@ class Daemon:
             os.replace(tmp, self._state_path)
             if self._pad is not None:
                 await self._pad.show(
-                    led_colors(sessions), oled_lines(sessions), key_names(sessions), flash_flags(sessions)
+                    led_colors(sessions),
+                    usage_lines(self._usage),
+                    key_names(sessions),
+                    flash_flags(sessions),
+                    overlay_info(sessions),
+                    usage_percents(self._usage),
                 )
 
     async def _prune_loop(self) -> None:
@@ -223,6 +238,30 @@ class Daemon:
             except Exception:
                 _LOGGER.exception("scan tick failed")
             await asyncio.sleep(self._scan_interval)
+
+    async def _ctx_loop(self) -> None:
+        # Context %, model and account usage all come from files Claude Code
+        # rewrites continuously — cheap reads, so a fast-ish cadence is fine.
+        while True:
+            try:
+                changed = False
+                if self._ctx_fn is not None:
+                    infos = {
+                        s.pid: await asyncio.to_thread(self._ctx_fn, s.pid)
+                        for s in self._registry.sessions()
+                        if s.pid > 1
+                    }
+                    changed |= self._registry.update_context(infos)
+                if self._usage_fn is not None:
+                    usage = await asyncio.to_thread(self._usage_fn)
+                    if usage != self._usage:
+                        self._usage = usage
+                        changed = True
+                if changed:
+                    await self._refresh()
+            except Exception:
+                _LOGGER.exception("context tick failed")
+            await asyncio.sleep(self._ctx_interval)
 
     async def _rc_loop(self) -> None:
         # Own fast cadence: remote-control toggles should show within seconds,
