@@ -216,6 +216,9 @@ class Daemon:
             # Notification texts drive the red state and vary by client —
             # keep them observable for diagnosing filter misses.
             _LOGGER.info("notification for %s: %r", session_id[:8], data.get("message"))
+        elif event in ("PermissionRequest", "PermissionDenied"):
+            # The red path that works in VS Code — keep arrivals observable.
+            _LOGGER.info("%s for %s", event, session_id[:8])
         if event == "SessionStart":
             # A reloaded session announces itself before the periodic prune
             # notices its predecessor died — sweep first so the newcomer
