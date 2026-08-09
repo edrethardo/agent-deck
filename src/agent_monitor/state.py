@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from .model import Session, Status, status_for_event
 
+_LOGGER = logging.getLogger(__name__)
 MAX_SLOTS = 16
 
 
@@ -50,13 +52,17 @@ class SessionRegistry:
             status = status_for_event(event, message, None) or Status.AVAILABLE
             twin = self._sessions.pop(f"proc-{pid}", None) if pid else None
             slot = twin.slot if twin is not None and twin.slot is not None else None
+            source = "twin" if slot is not None else "fresh"
             if slot is None:
                 preferred = self._last_slot_by_cwd.get(cwd)
                 if preferred is not None and self._slot_is_free(preferred):
                     slot = preferred
+                    source = "memory"
+                    self._last_slot_by_cwd.pop(cwd, None)
             if slot is None:
                 slot = self._claim_slot_for_real()
-            self._last_slot_by_cwd.pop(cwd, None)
+            _LOGGER.info("session %s created pid=%s slot=%s (%s)",
+                         session_id[:8], pid, slot, source)
             self._sessions[session_id] = Session(
                 session_id=session_id,
                 cwd=cwd,
@@ -101,12 +107,19 @@ class SessionRegistry:
         """Register a discovered claude process unless its PID is already tracked."""
         if any(s.pid == pid for s in self._sessions.values()):
             return False
+        preferred = self._last_slot_by_cwd.get(cwd)
+        if preferred is not None and self._slot_is_free(preferred):
+            slot = preferred
+            self._last_slot_by_cwd.pop(cwd, None)
+        else:
+            slot = self._free_slot()
+        _LOGGER.info("scanned session pid=%s slot=%s", pid, slot)
         self._sessions[f"proc-{pid}"] = Session(
             session_id=f"proc-{pid}",
             cwd=cwd,
             pid=pid,
             status=Status.UNKNOWN,
-            slot=self._free_slot(),
+            slot=slot,
             since=now,
         )
         return True
@@ -140,7 +153,10 @@ class SessionRegistry:
         """Remove sessions whose process is dead. True if anything changed."""
         dead = [sid for sid, s in self._sessions.items() if not pid_alive(s.pid)]
         for sid in dead:
-            self._remember_slot(self._sessions[sid])
+            sess = self._sessions[sid]
+            _LOGGER.info("pruned session %s pid=%s slot=%s (process dead)",
+                         sid[:8], sess.pid, sess.slot)
+            self._remember_slot(sess)
             del self._sessions[sid]
         promoted = self._promote_overflow()
         return bool(dead) or promoted

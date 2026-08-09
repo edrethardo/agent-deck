@@ -229,3 +229,13 @@ def test_update_remote_flags_reports_changes():
     assert reg.by_id("a").remote is True
     assert reg.update_remote_flags(lambda pid: True) is False
     assert reg.update_remote_flags(lambda pid: False) is True
+
+
+def test_scan_rediscovery_reclaims_projects_key():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=100)              # slot 0
+    _start(reg, "b", pid=200)              # slot 1
+    reg.swap_slots(1, 6)                   # user moved b to key 7
+    reg.prune(lambda pid: pid == 100)      # b's process died
+    assert reg.add_scanned(300, "/proj/b", 5.0) is True
+    assert reg.by_id("proc-300").slot == 6  # rediscovery lands on b's old key
