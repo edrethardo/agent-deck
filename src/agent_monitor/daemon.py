@@ -139,6 +139,10 @@ class Daemon:
             pid = int(data.get("pid") or 0)
         except (TypeError, ValueError):
             pid = 0
+        if event == "Notification":
+            # Notification texts drive the red state and vary by client —
+            # keep them observable for diagnosing filter misses.
+            _LOGGER.info("notification for %s: %r", session_id[:8], data.get("message"))
         if event == "SessionStart":
             # A reloaded session announces itself before the periodic prune
             # notices its predecessor died — sweep first so the newcomer

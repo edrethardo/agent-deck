@@ -107,6 +107,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 - **Double-press does nothing** — is `wmctrl` installed? Does `systemctl --user show-environment` contain `DISPLAY`? Check the journal for `focus request` lines.
 - **More than 16 sessions** — extras get no key (overflow) but stay visible in the CLI; real sessions evict blue scanned entries when keys run short.
 - **Left knob does nothing** — encoders 1/2 may be swapped on your build; change pins 25/26 to 33/32 in `firmware/deepdeck.yaml` and reflash OTA.
+- **Keys never turn red in VS Code** — known upstream limitation (verified empirically 2026-08): the VS Code extension's inline permission dialog does not fire Claude Code's `Notification` hook, focused or not, so the daemon never learns the session is blocked. Terminal (`claude` CLI) sessions turn red as designed. If a future extension version adds the hook, red starts working with no changes here — `journalctl --user -u agent-monitor | grep notification` will show the events arriving.
 
 ## Development
 
