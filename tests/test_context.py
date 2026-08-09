@@ -179,3 +179,86 @@ def test_read_usage_missing_file_or_key(tmp_path):
     p = tmp_path / "claude.json"
     p.write_text("{}")
     assert context.read_usage(p, now=NOW) == []
+
+
+def _cache_file(tmp_path, fetched_at_ms, five_hour):
+    p = tmp_path / "claude.json"
+    p.write_text(json.dumps({
+        "cachedUsageUtilization": {
+            "fetchedAtMs": fetched_at_ms,
+            "utilization": {"five_hour": five_hour, "seven_day": None},
+        }
+    }))
+    return p
+
+
+class _Clock:
+    def __init__(self, t):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+def test_provider_prefers_fresh_cache_without_fetching(tmp_path):
+    # cache fetched 60s ago, reset in the future -> no network call
+    now = NOW  # 2026-08-09 12:00 UTC
+    p = _cache_file(tmp_path, (now.timestamp() - 60) * 1000,
+                    {"utilization": 40, "resets_at": "2026-08-09T13:00:00+00:00"})
+    calls = []
+    provider = context.UsageProvider(
+        cache_path=p, fetch_fn=lambda: calls.append(1) or {},
+        time_fn=_Clock(now.timestamp()), now_fn=lambda: now)
+    (five,) = provider()
+    assert (five.percent, five.stale) == (40, False)
+    assert calls == []
+
+
+def test_provider_fetches_live_when_cache_stale(tmp_path):
+    # cache says the reset already passed -> live fetch wins
+    now = NOW
+    p = _cache_file(tmp_path, (now.timestamp() - 3600) * 1000,
+                    {"utilization": 100, "resets_at": "2026-08-09T11:40:00+00:00"})
+    live = {"five_hour": {"utilization": 35, "resets_at": "2026-08-09T16:50:00+00:00"}}
+    provider = context.UsageProvider(
+        cache_path=p, fetch_fn=lambda: live,
+        time_fn=_Clock(now.timestamp()), now_fn=lambda: now)
+    (five,) = provider()
+    assert (five.percent, five.stale) == (35, False)
+
+
+def test_provider_throttles_fetch_and_refetches_when_aged(tmp_path):
+    now = NOW
+    clock = _Clock(now.timestamp())
+    p = _cache_file(tmp_path, (now.timestamp() - 3600) * 1000,
+                    {"utilization": 100, "resets_at": "2026-08-09T11:40:00+00:00"})
+    calls = []
+    live = {"five_hour": {"utilization": 35, "resets_at": "2026-08-09T16:50:00+00:00"}}
+    provider = context.UsageProvider(
+        cache_path=p, fetch_fn=lambda: calls.append(1) or live,
+        time_fn=clock, now_fn=lambda: now)
+    provider()
+    provider()          # immediately again: live snapshot still fresh
+    assert len(calls) == 1
+    clock.t += context.LIVE_MAX_AGE_S + 1
+    provider()          # snapshot aged out -> refetch
+    assert len(calls) == 2
+
+
+def test_provider_failure_falls_back_to_cache(tmp_path):
+    now = NOW
+    p = _cache_file(tmp_path, (now.timestamp() - 3600) * 1000,
+                    {"utilization": 100, "resets_at": "2026-08-09T11:40:00+00:00"})
+    provider = context.UsageProvider(
+        cache_path=p, fetch_fn=lambda: None,
+        time_fn=_Clock(now.timestamp()), now_fn=lambda: now)
+    (five,) = provider()
+    assert (five.percent, five.stale) == (100, True)  # honest stale cache
+
+
+def test_fetch_usage_util_refuses_expired_or_missing_creds(tmp_path):
+    creds = tmp_path / "creds.json"
+    assert context.fetch_usage_util(creds_path=creds) is None
+    creds.write_text(json.dumps({"claudeAiOauth": {
+        "accessToken": "x", "expiresAt": 1000}}))  # long expired
+    assert context.fetch_usage_util(creds_path=creds) is None

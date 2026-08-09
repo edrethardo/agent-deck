@@ -2010,3 +2010,5 @@ New module `context.py` reads Claude Code's own files (read-only): `~/.claude/se
 ### Task 21: "compact context" pad-menu action (added on Aaron's request, 2026-08-09)
 
 Third context-menu entry (option 2). The phone app has no manual compact; the deck now does: `actions.compact_session` types `/compact` via the shared `_slash_command` helper (extracted from `toggle_remote_control`). Firmware menu cycles mod 3, anticlockwise steps back; daemon maps options via a dict and ignores unknown ones.
+
+> **AMENDMENT (Task 20, same day):** `cachedUsageUtilization` refreshes only on LOCAL UI activity — a phone-driven remote-control session never touches it (observed: cache frozen for 3 h while the phone showed fresh numbers). `UsageProvider` therefore prefers the cache while it is <10 min old and non-stale, and otherwise fetches `api.anthropic.com/api/oauth/usage` directly with the on-disk Claude Code OAuth token (read-only, ≥10 min between fetches, 2 min failure backoff, token never logged). Verified live: deck shows the post-reset 5h window while the PC UI is idle.

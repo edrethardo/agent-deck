@@ -5,14 +5,24 @@ and the usage cache in ~/.claude.json). Read-only — nothing here writes."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+_LOGGER = logging.getLogger(__name__)
+
 CLAUDE_DIR = Path.home() / ".claude"
 CLAUDE_JSON = Path.home() / ".claude.json"
+CREDENTIALS = CLAUDE_DIR / ".credentials.json"
+USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CACHE_MAX_AGE_S = 600.0   # trust Claude Code's own cache this long
+LIVE_MAX_AGE_S = 600.0    # refetch our live snapshot after this
+FETCH_RETRY_S = 120.0     # back off after a failed live fetch
 TAIL_BYTES = 262_144  # transcripts append; the last assistant entry is near the end
 DEFAULT_WINDOW = 200_000
 LARGE_WINDOW = 1_000_000  # models tagged [1m]
@@ -126,15 +136,7 @@ def session_context(pid: int, claude_dir: Path | None = None) -> ContextInfo | N
     return read_context(path, large_for=settings_large_model(claude_dir))
 
 
-def read_usage(path: Path | None = None, *, now: datetime | None = None) -> list[UsageLimit]:
-    """Account usage limits as cached by Claude Code (what /usage shows)."""
-    path = path or CLAUDE_JSON
-    now = now or datetime.now().astimezone()
-    try:
-        data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return []
-    util = (data.get("cachedUsageUtilization") or {}).get("utilization") or {}
+def _parse_utilization(util: dict, now: datetime) -> list[UsageLimit]:
     out = []
     for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
         entry = util.get(key)
@@ -152,3 +154,87 @@ def read_usage(path: Path | None = None, *, now: datetime | None = None) -> list
                 resets_txt = resets.strftime("%H:%M" if resets.date() == now.date() else "%a %H:%M")
         out.append(UsageLimit(label, int(entry["utilization"]), resets_txt, stale))
     return out
+
+
+def _read_cache(path: Path | None) -> tuple[dict, float]:
+    """Claude Code's cached utilization + its fetch time (0.0 if unusable)."""
+    try:
+        data = json.loads((path or CLAUDE_JSON).read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}, 0.0
+    cached = data.get("cachedUsageUtilization") or {}
+    return cached.get("utilization") or {}, float(cached.get("fetchedAtMs") or 0) / 1000
+
+
+def read_usage(path: Path | None = None, *, now: datetime | None = None) -> list[UsageLimit]:
+    """Account usage limits as cached by Claude Code (what /usage shows)."""
+    util, _ = _read_cache(path)
+    return _parse_utilization(util, now or datetime.now().astimezone())
+
+
+def fetch_usage_util(creds_path: Path | None = None, timeout: float = 5.0) -> dict | None:
+    """Live usage from the same endpoint the phone app uses, authenticated
+    with the user's existing Claude Code OAuth token (read-only; the token
+    goes to api.anthropic.com only and is never logged)."""
+    try:
+        creds = json.loads(Path(creds_path or CREDENTIALS).read_text()).get("claudeAiOauth") or {}
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+    token = creds.get("accessToken")
+    if not token or float(creds.get("expiresAt") or 0) / 1000 <= time.time():
+        return None  # expired token: don't burn a request; CC renews it itself
+    req = urllib.request.Request(USAGE_URL, headers={
+        "Authorization": f"Bearer {token}",
+        "anthropic-beta": "oauth-2025-04-20",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read())
+    except (OSError, ValueError) as exc:
+        _LOGGER.debug("live usage fetch failed: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+class UsageProvider:
+    """Freshest available account usage: Claude Code's cache while it is
+    recent, otherwise a throttled live fetch (the cache only refreshes on
+    local UI activity — phone-driven remote-control sessions never touch it)."""
+
+    def __init__(
+        self,
+        *,
+        cache_path: Path | None = None,
+        creds_path: Path | None = None,
+        fetch_fn=None,
+        time_fn=time.time,
+        now_fn=None,
+    ):
+        self._cache_path = cache_path
+        self._fetch = fetch_fn or (lambda: fetch_usage_util(creds_path=creds_path))
+        self._time = time_fn
+        self._now = now_fn or (lambda: datetime.now().astimezone())
+        self._live_util: dict | None = None
+        self._live_at = 0.0
+        self._attempt_at = 0.0
+
+    def __call__(self) -> list[UsageLimit]:
+        now = self._now()
+        t = self._time()
+        cache_util, fetched_s = _read_cache(self._cache_path)
+        cache_limits = _parse_utilization(cache_util, now)
+        if (cache_limits and t - fetched_s < CACHE_MAX_AGE_S
+                and not any(lim.stale for lim in cache_limits)):
+            return cache_limits
+        if t - self._live_at >= LIVE_MAX_AGE_S and t - self._attempt_at >= FETCH_RETRY_S:
+            self._attempt_at = t
+            util = self._fetch()
+            if util:
+                self._live_util, self._live_at = util, t
+            else:
+                _LOGGER.info("live usage fetch unavailable — showing cached data")
+        if self._live_util:
+            live = _parse_utilization(self._live_util, now)
+            if live:
+                return live
+        return cache_limits
