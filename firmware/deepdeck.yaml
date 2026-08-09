@@ -396,7 +396,9 @@ display:
         }
         id(info_until) = 0;
       }
-      // Idle view is the kraken (Aaron's preference) — the LEDs carry the
-      // status; session names appear on key press. oled_lines stays in the
+      // Idle view is the kraken — the LEDs carry the status; session names
+      // appear on key press. Drawn fully inside the BLUE zone of the two-tone
+      // panel (top 16 rows are physically yellow); the yellow band stays a
+      // header strip for overlay/menu/info titles. oled_lines stays in the
       // protocol should a list view ever return.
-      it.image(37, 0, id(kraken_logo));
+      it.image(44, 16, id(kraken_logo));
