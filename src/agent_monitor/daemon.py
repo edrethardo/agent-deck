@@ -90,8 +90,12 @@ class Daemon:
         _LOGGER.info("focus request for %s -> %s", cwd, "ok" if ok else "no match")
 
     async def _run_action(self, sess, option: int) -> None:
-        from .actions import restart_session, toggle_remote_control
-        fn = restart_session if option == 0 else toggle_remote_control
+        from . import actions
+        fn = {0: actions.restart_session,
+              1: actions.toggle_remote_control,
+              2: actions.compact_session}.get(option)
+        if fn is None:
+            return
         ok = await asyncio.to_thread(fn, sess.cwd)
         _LOGGER.info("pad action %s for %s -> %s", fn.__name__, sess.cwd, "ok" if ok else "failed")
         if ok and option == 1 and sess.slot is not None:

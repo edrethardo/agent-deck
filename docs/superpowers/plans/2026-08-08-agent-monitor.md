@@ -2004,3 +2004,9 @@ New module `context.py` reads Claude Code's own files (read-only): `~/.claude/se
 
 > **Finding (window inference):** the 1m context beta rides an HTTP header — transcripts record a plain model string even at 700k+ tokens. The window is therefore inferred: `[1m]` tag, any observed turn >200k tokens, or the session running the settings-pinned 1m default model ⇒ 1m; else 200k (conservative, self-corrects once evidence appears).
 > **Finding (usage staleness):** `cachedUsageUtilization` refreshes on Claude Code's own schedule (~40 min gaps observed); once a limit's reset time passes, the cached percentage is knowably wrong → shown as `--%` with no bar until the cache refreshes.
+
+---
+
+### Task 21: "compact context" pad-menu action (added on Aaron's request, 2026-08-09)
+
+Third context-menu entry (option 2). The phone app has no manual compact; the deck now does: `actions.compact_session` types `/compact` via the shared `_slash_command` helper (extracted from `toggle_remote_control`). Firmware menu cycles mod 3, anticlockwise steps back; daemon maps options via a dict and ignores unknown ones.

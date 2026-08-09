@@ -99,7 +99,7 @@ Without the config file the daemon runs CLI-only — useful before the hardware 
 | **Double-press** (<400 ms) | Focuses that session's window on your desktop (VS Code windows match best) |
 | **Hold** (≥600 ms) | Pick up the session — the key blinks; **click another key** to move/swap it there; same key or 10 s cancels |
 | **Left knob turn** | LED brightness in 5 % steps (persists across reboots) — or scrolls the menu while it's open |
-| **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked) and **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly). Turn to choose, press to execute; any key or 8 s cancels |
+| **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked), **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly) and **compact context** (types `/compact` — the phone app has no manual compact, the deck does). Turn to choose, press to execute; any key or 8 s cancels |
 
 The OLED idles on the account usage screen: `5h` (current session window) and `7d` (weekly) with progress bars and reset times, read from the cache Claude Code keeps for its own `/usage` command. When no usage data is available the DeepDeck kraken takes over. Sessions keep their key for their whole lifetime, across daemon restarts and session reloads.
 

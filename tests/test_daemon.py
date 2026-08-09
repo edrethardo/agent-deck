@@ -249,3 +249,21 @@ async def test_session_start_reclaims_dead_predecessors_key(paths):
     assert sessions["reborn"]["slot"] == 0
     assert sessions["proc-500"]["slot"] == 1
     await _stop(task)
+
+
+async def test_run_action_option_mapping(paths, monkeypatch):
+    from agent_monitor import actions
+    from agent_monitor.model import Session, Status
+
+    called = []
+    monkeypatch.setattr(actions, "restart_session", lambda cwd: (called.append("restart"), True)[1])
+    monkeypatch.setattr(actions, "toggle_remote_control", lambda cwd: (called.append("toggle"), True)[1])
+    monkeypatch.setattr(actions, "compact_session", lambda cwd: (called.append("compact"), True)[1])
+    state_path, sock_path = paths
+    daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True)
+    sess = Session("a", "/proj/x", 1, Status.AVAILABLE, 0, 1.0)
+    await daemon._run_action(sess, 0)
+    await daemon._run_action(sess, 2)
+    await daemon._run_action(sess, 7)  # unknown option — ignored
+    assert called == ["restart", "compact"]

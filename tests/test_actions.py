@@ -74,3 +74,21 @@ def test_palette_injection_error_returns_false(monkeypatch):
 
     ok = actions.restart_session("/proj/a", run=boom, pause=_fake_pause([]))
     assert ok is False
+
+
+def test_compact_session_types_slash_command(monkeypatch):
+    monkeypatch.setattr(actions, "focus_window", lambda cwd, **kw: True)
+    monkeypatch.setattr(actions.shutil, "which", lambda name: "/usr/bin/xdotool")
+    calls = []
+    ok = actions.compact_session("/proj/a", run=_fake_run(calls), pause=_fake_pause([]))
+    assert ok is True
+    typed = [c for c in calls if c[:2] == ["xdotool", "type"]]
+    assert any("Claude Code: Focus input" in c for c in typed)
+    assert any("/compact" in c for c in typed)
+
+
+def test_compact_session_returns_false_when_window_not_found(monkeypatch):
+    monkeypatch.setattr(actions, "focus_window", lambda cwd, **kw: False)
+    calls = []
+    assert actions.compact_session("/proj/a", run=_fake_run(calls), pause=_fake_pause([])) is False
+    assert calls == []

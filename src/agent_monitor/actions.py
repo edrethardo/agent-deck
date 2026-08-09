@@ -45,8 +45,8 @@ def restart_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     return _palette("Developer: Reload Window", run=run, pause=pause)
 
 
-def toggle_remote_control(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
-    """Focus the Claude input via its palette command, then send /remote-control."""
+def _slash_command(cwd: str, command: str, *, run=subprocess.run, pause=time.sleep) -> bool:
+    """Focus the Claude input via its palette command, then send a slash command."""
     if not focus_window(cwd):
         return False
     pause(0.4)
@@ -54,12 +54,21 @@ def toggle_remote_control(cwd: str, *, run=subprocess.run, pause=time.sleep) -> 
         return False
     pause(0.6)
     try:
-        _xdo(["type", "--delay", "25", "/remote-control"], run=run)
+        _xdo(["type", "--delay", "25", command], run=run)
         pause(0.4)
         _xdo(["key", "Return"], run=run)  # accept the slash-command autocomplete
         pause(0.2)
         _xdo(["key", "Return"], run=run)  # send
         return True
     except (OSError, subprocess.TimeoutExpired) as exc:
-        _LOGGER.warning("remote-control toggle failed: %s", exc)
+        _LOGGER.warning("%s injection failed: %s", command, exc)
         return False
+
+
+def toggle_remote_control(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
+    return _slash_command(cwd, "/remote-control", run=run, pause=pause)
+
+
+def compact_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
+    """Manually compact the session's context (the phone app cannot)."""
+    return _slash_command(cwd, "/compact", run=run, pause=pause)
