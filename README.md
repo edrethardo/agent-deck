@@ -33,7 +33,7 @@ One [DeepDeck Ahuyama](https://github.com/DeepSea-Developments/DeepDeck.Ahuyama.
 
 ## Installation
 
-Requirements: Linux with systemd (user session), X11 for window focusing, [uv](https://docs.astral.sh/uv/), Python ≥ 3.14 (uv fetches it automatically), `wmctrl` (`sudo apt install wmctrl`) for double-press-to-focus, and a 2.4 GHz WiFi network shared with the pad.
+Requirements: Linux with systemd (user session), X11 for the desktop actions, [uv](https://docs.astral.sh/uv/), Python ≥ 3.14 (uv fetches it automatically), `wmctrl` + `xdotool` (`sudo apt install wmctrl xdotool`) for window focusing and the pad menu actions, and a 2.4 GHz WiFi network shared with the pad.
 
 ### 1. PC side
 
@@ -89,14 +89,15 @@ Without the config file the daemon runs CLI-only — useful before the hardware 
 | **Press** a key | OLED shows `key N` + that session's project name for 3 s |
 | **Double-press** (<400 ms) | Focuses that session's window on your desktop (VS Code windows match best) |
 | **Hold** (≥600 ms) | Pick up the session — the key blinks; **click another key** to move/swap it there; same key or 10 s cancels |
-| **Left knob** | LED brightness in 5 % steps (persists across reboots) |
+| **Left knob turn** | LED brightness in 5 % steps (persists across reboots) — or scrolls the menu while it's open |
+| **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked) and **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly). Turn to choose, press to execute; any key or 8 s cancels |
 
 The OLED idles on the DeepDeck kraken; sessions keep their key for their whole lifetime, across daemon restarts and session reloads.
 
 ## CLI
 
 ```bash
-agent-monitor status           # colored table: key, project, status, duration
+agent-monitor status           # colored table: key, project, status, RC flag, duration
 agent-monitor status --watch   # live view
 agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ```
