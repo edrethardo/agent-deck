@@ -23,7 +23,9 @@ def _run_daemon() -> int:
     try:
         daemon = Daemon(SessionRegistry(), None, paths.state_path(), paths.socket_path(),
                         scan_fn=claude_processes, rc_fn=has_remote_control)
-        pad = DeepDeckPad(cfg, on_focus=daemon.focus_slot, on_move=daemon.move_slot) if cfg else None
+        pad = DeepDeckPad(
+            cfg, on_focus=daemon.focus_slot, on_move=daemon.move_slot, on_action=daemon.action_slot
+        ) if cfg else None
         daemon._pad = pad
 
         async def _main() -> None:

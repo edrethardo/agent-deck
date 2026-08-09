@@ -67,10 +67,23 @@ class Daemon:
         if self._registry.swap_slots(src, dst):
             asyncio.get_event_loop().create_task(self._refresh())
 
+    def action_slot(self, slot: int, option: int) -> None:
+        """Run a pad menu action for the session on `slot`."""
+        for sess in self._registry.sessions():
+            if sess.slot == slot:
+                asyncio.get_event_loop().create_task(self._run_action(sess.cwd, option))
+                return
+
     async def _focus(self, cwd: str) -> None:
         from .focus import focus_window
         ok = await asyncio.to_thread(focus_window, cwd)
         _LOGGER.info("focus request for %s -> %s", cwd, "ok" if ok else "no match")
+
+    async def _run_action(self, cwd: str, option: int) -> None:
+        from .actions import restart_session, toggle_remote_control
+        fn = restart_session if option == 0 else toggle_remote_control
+        ok = await asyncio.to_thread(fn, cwd)
+        _LOGGER.info("pad action %s for %s -> %s", fn.__name__, cwd, "ok" if ok else "failed")
 
     async def run(self) -> None:
         if self._socket_path.exists():

@@ -98,6 +98,18 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  - id: menu_slot
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  - id: menu_cursor
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: menu_until
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
 
 light:
   - platform: esp32_rmt_led_strip
@@ -201,6 +213,7 @@ interval:
               int slot = r * 4 + c;  // stock keymap order: row-major
               bool hit = gpio_get_level(SCAN_ROWS[r]);
               if (hit && !last[slot]) {
+                if (id(menu_slot) >= 0) { id(menu_slot) = -1; }
                 press_start[slot] = now;
                 hold_fired[slot] = false;
                 if (id(move_src) >= 0) {
@@ -255,6 +268,10 @@ text_sensor:
     id: move_req
     name: "Move Request"
     update_interval: never
+  - platform: template
+    id: action_req
+    name: "Action Request"
+    update_interval: never
 
 sensor:
   - platform: rotary_encoder
@@ -271,6 +288,12 @@ sensor:
         pullup: true
     on_clockwise:
       - lambda: |-
+          if (id(menu_slot) >= 0) {
+            id(menu_cursor) = (id(menu_cursor) + 1) % 2;
+            id(menu_until) = millis() + 8000;
+            id(oled).update();
+            return;
+          }
           id(led_brightness) = std::min(1.0f, id(led_brightness) + 0.05f);
           char buf[24];
           snprintf(buf, sizeof(buf), "brightness %d%%", (int) (id(led_brightness) * 100));
@@ -279,12 +302,51 @@ sensor:
           id(oled).update();
     on_anticlockwise:
       - lambda: |-
+          if (id(menu_slot) >= 0) {
+            id(menu_cursor) = (id(menu_cursor) + 1) % 2;
+            id(menu_until) = millis() + 8000;
+            id(oled).update();
+            return;
+          }
           id(led_brightness) = std::max(0.05f, id(led_brightness) - 0.05f);
           char buf[24];
           snprintf(buf, sizeof(buf), "brightness %d%%", (int) (id(led_brightness) * 100));
           id(info_text) = buf;
           id(info_until) = millis() + 1500;
           id(oled).update();
+
+binary_sensor:
+  - platform: gpio
+    id: knob_left_btn
+    internal: true
+    pin:
+      number: GPIO34
+      mode:
+        input: true
+    filters:
+      - delayed_on: 30ms
+    on_press:
+      then:
+        - lambda: |-
+            uint32_t now = millis();
+            if (id(menu_slot) >= 0) {
+              ESP_LOGI("menu", "action slot=%d option=%d", id(menu_slot), id(menu_cursor));
+              id(action_req).publish_state(to_string(id(menu_slot)) + ":" +
+                                           to_string(id(menu_cursor)) + ":" + to_string(now));
+              id(menu_slot) = -1;
+              id(info_text) = "sent";
+              id(info_until) = now + 1200;
+            } else if (id(overlay_slot) >= 0 && (int32_t) (now - id(overlay_until)) < 0) {
+              id(menu_slot) = id(overlay_slot);
+              id(menu_cursor) = 0;
+              id(menu_until) = now + 8000;
+              id(overlay_slot) = -1;
+            }
+            id(oled).update();
+    # GPIO34 is input-only with no internal pulls; the PCB biases it and the
+    # stock firmware reads it active-high. If the bench shows the button
+    # reading inverted (pressed = low reported as high, etc.), add
+    # `inverted: true` on the pin above as the fix.
 
 font:
   - file: "gfonts://Roboto Mono"
@@ -303,6 +365,18 @@ display:
     address: 0x3C
     update_interval: 500ms
     lambda: |-
+      if (id(menu_slot) >= 0) {
+        if ((int32_t) (millis() - id(menu_until)) < 0) {
+          std::string header = id(menu_slot) < (int) id(key_names).size() && !id(key_names)[id(menu_slot)].empty()
+              ? id(key_names)[id(menu_slot)]
+              : "key " + to_string(id(menu_slot) + 1);
+          it.print(0, 0, id(font8), header.c_str());
+          it.print(0, 16, id(font8), id(menu_cursor) == 0 ? "> restart session" : "  restart session");
+          it.print(0, 28, id(font8), id(menu_cursor) == 1 ? "> toggle remote" : "  toggle remote");
+          return;
+        }
+        id(menu_slot) = -1;
+      }
       if (id(overlay_slot) >= 0) {
         if ((int32_t) (millis() - id(overlay_until)) < 0) {
           int slot = id(overlay_slot);

@@ -29,6 +29,7 @@ class DeepDeckPad:
         *,
         on_focus: Callable[[int], None] | None = None,
         on_move: Callable[[int, int], None] | None = None,
+        on_action: Callable[[int, int], None] | None = None,
     ):
         self._cfg = config
         self._factory = client_factory or (
@@ -45,6 +46,7 @@ class DeepDeckPad:
         self._last: tuple[list[int], list[str], list[str], list[int]] | None = None
         self._on_focus = on_focus
         self._on_move = on_move
+        self._on_action = on_action
         self._last_payloads: dict[int, str] = {}
 
     def _make_on_stop(self, client, stopped: asyncio.Event):
@@ -84,7 +86,7 @@ class DeepDeckPad:
                 self._service = service
                 self._client = client
                 self._connected.set()
-                if self._on_focus is not None or self._on_move is not None:
+                if self._on_focus is not None or self._on_move is not None or self._on_action is not None:
                     keys = {}
                     for e in entities:
                         oid = getattr(e, "object_id", "")
@@ -92,6 +94,8 @@ class DeepDeckPad:
                             keys[e.key] = "focus"
                         elif oid == "move_request":
                             keys[e.key] = "move"
+                        elif oid == "action_request":
+                            keys[e.key] = "action"
                     if keys:
                         subscribed_at = self._loop_time()
                         client.subscribe_states(
@@ -145,6 +149,10 @@ class DeepDeckPad:
                 src, dst = int(parts[0]), int(parts[1])
                 if 0 <= src < 16 and 0 <= dst < 16:
                     self._on_move(src, dst)
+            elif kind == "action" and self._on_action is not None:
+                slot, option = int(parts[0]), int(parts[1])
+                if 0 <= slot < 16 and 0 <= option < 8:
+                    self._on_action(slot, option)
         except (ValueError, IndexError):
             return
 
