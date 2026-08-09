@@ -74,7 +74,10 @@ class SessionRegistry:
             )
             return True
 
-        sess.cwd = cwd or sess.cwd
+        if not sess.cwd:
+            # Frozen at creation otherwise: a `cd` inside the session must not
+            # rename the key or shift its per-cwd sticky-slot identity.
+            sess.cwd = cwd
         sess.pid = pid if pid > 1 else sess.pid
         new = status_for_event(event, message, sess.status)
         if new is None:

@@ -320,3 +320,12 @@ def test_activity_never_downgrades_waiting():
     (s,) = reg.sessions()
     reg.update_context({5: ContextInfo(10, "fable-5", "high", activity=110.0)}, now=112.0)
     assert s.status is Status.WAITING
+
+
+def test_cwd_is_frozen_at_creation():
+    reg = SessionRegistry()
+    _start(reg, "a")  # cwd /proj/a
+    # the session cd's into a subdirectory — hook events report the new cwd
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a/docs/plans", 100, None, 2.0)
+    (s,) = reg.sessions()
+    assert s.cwd == "/proj/a"  # key identity and name must not drift
