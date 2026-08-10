@@ -43,6 +43,8 @@ class ContextInfo:
     #                         credits) and no hook reports it
     peer_name: str = ""     # a peer session it sent work to and awaits
     peer_pid: int = 0       # that peer's pid, resolved via the sessions dir
+    interrupted: bool = False  # the user pressed Esc: the turn ended without a
+    #                            Stop hook, but the session is idle and theirs
 
 
 # Tools that block on USER input by design — an unresolved call at the tail of
@@ -67,6 +69,10 @@ SHORT_NOTICE_LEN = 200
 PEER_WAIT_WINDOW_S = 1800.0  # a dispatched peer task is "in flight" this long
 # Replies address the peer by its messaging socket instead of its name.
 UDS_PID_RE = re.compile(r"cc-socks/(\d+)\.sock")
+# Esc during a turn: Claude Code appends this as a lone user entry. Matched
+# only as the whole message, so prose quoting the marker cannot trigger it.
+INTERRUPT_MARKERS = ("[Request interrupted by user]",
+                     "[Request interrupted by user for tool use]")
 
 
 @dataclass(frozen=True)
@@ -135,6 +141,17 @@ def _is_limit_notice(entry: dict) -> bool:
     if LIMIT_START_RE.match(text):
         return True
     return len(text) <= SHORT_NOTICE_LEN and LIMIT_MARKER_RE.search(text) is not None
+
+
+def _is_interrupt(entry: dict) -> bool:
+    """True if this user entry is nothing but Claude Code's interrupt marker."""
+    content = (entry.get("message") or {}).get("content") or []
+    if isinstance(content, str):
+        return content.strip() in INTERRUPT_MARKERS
+    blocks = [b for b in content if isinstance(b, dict)]
+    if len(blocks) != 1 or blocks[0].get("type") != "text":
+        return False
+    return str(blocks[0].get("text") or "").strip() in INTERRUPT_MARKERS
 
 
 def session_names(claude_dir: Path | None = None) -> dict[str, int]:
@@ -209,7 +226,9 @@ def read_context(path: Path, large_for: str | None = None,
         last = (tokens, model, str(entry.get("effort") or ""))
     if last is None:
         return None
-    question = blocked = False
+    question = blocked = interrupted = False
+    if tail_entry is not None and tail_entry.get("type") == "user":
+        interrupted = _is_interrupt(tail_entry)
     if tail_entry is not None and tail_entry.get("type") == "assistant":
         blocked = _is_limit_notice(tail_entry)
         # A resolved call would be followed by a user(tool_result) entry, an
@@ -232,6 +251,7 @@ def read_context(path: Path, large_for: str | None = None,
         question=question,
         blocked=blocked,
         peer_name=peer_name,
+        interrupted=interrupted,
     )
 
 

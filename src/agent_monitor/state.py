@@ -173,7 +173,17 @@ class SessionRegistry:
                 (sess.context_pct, sess.model, sess.effort,
                  sess.question, sess.blocked) = new
                 changed = True
-            if (sess.status is Status.AVAILABLE
+            if info.interrupted:
+                # Esc ends the turn without a Stop hook. The session is idle
+                # and the user is right there — green, like a finished task.
+                # Claimed before the activity check: the interrupt itself is
+                # the fresh transcript write it would otherwise react to.
+                if sess.status is not Status.AVAILABLE or not sess.finished:
+                    sess.status = Status.AVAILABLE
+                    sess.finished = True
+                    sess.since = info.activity or (now or sess.since)
+                    changed = True
+            elif (sess.status is Status.AVAILABLE
                     and now is not None
                     and info.activity > sess.since + 2.0
                     and now - info.activity < self.ACTIVITY_WINDOW_S):
@@ -198,7 +208,7 @@ class SessionRegistry:
         for sess in self._sessions.values():
             info = infos.get(sess.pid)
             waiting = ""
-            if info is not None and info.peer_pid:
+            if info is not None and info.peer_pid and not info.interrupted:
                 peer = by_pid.get(info.peer_pid)
                 if peer is not None and peer is not sess and (
                         peer.status in (Status.BUSY, Status.WAITING)

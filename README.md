@@ -4,7 +4,7 @@
 
 Run half a dozen Claude Code sessions in parallel and you lose track of which one is working, which one finished, and which one has been silently waiting ten minutes for you to approve a command. agent-deck puts every session on its own key of a WiFi macropad sitting on your desk:
 
-- 🟢 **green** — **recently finished a task**: a fresh result is waiting for you (fades to blue/white after 10 min)
+- 🟢 **green** — **recently finished a task** (or you interrupted it with Esc): the session is idle and yours (fades to blue/white after 10 min)
 - 🟡 **yellow** — Claude is working
 - 🔴 **red** — Claude is **blocked waiting for you** (permission prompt, question, plan approval — or it hit a usage limit and needs a model switch / credits)
 - 🔵 **blue** — session is idle and **remote-controllable**: pick it up from your phone
@@ -144,7 +144,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ## Development
 
 ```bash
-uv run pytest -q                                # 208 tests
+uv run pytest -q                                # 215 tests
 uvx esphome config firmware/deepdeck.yaml       # firmware schema check
 uvx esphome compile firmware/deepdeck.yaml      # full build
 ```

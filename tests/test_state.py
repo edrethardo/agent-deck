@@ -384,3 +384,39 @@ def test_unknown_peer_pid_does_not_set_waiting():
     _start(reg, "sender", pid=5)
     reg.update_context({5: _ctx(peer_name="ghost", peer_pid=999)}, now=10.0)
     assert reg.sessions()[0].waiting_for == ""
+
+
+def test_interrupt_makes_the_session_green_and_beats_activity():
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 10.0)  # working
+    # Esc: the interrupt itself writes the transcript, so activity is fresh
+    assert reg.update_context({5: _ctx(interrupted=True, activity=100.0)}, now=101.0) is True
+    (s,) = reg.sessions()
+    assert (s.status, s.finished) == (Status.AVAILABLE, True)
+    # the fresh write must not flip it straight back to working
+    reg.update_context({5: _ctx(interrupted=True, activity=100.0)}, now=105.0)
+    assert s.status is Status.AVAILABLE
+
+
+def test_new_prompt_after_interrupt_goes_back_to_working():
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.update_context({5: _ctx(interrupted=True, activity=100.0)}, now=101.0)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 110.0)
+    assert reg.sessions()[0].status is Status.BUSY
+
+
+def test_interrupt_beats_a_pending_peer_wait():
+    reg = SessionRegistry()
+    _start(reg, "sender", pid=5)
+    _start(reg, "peer", pid=9)
+    reg.apply_event("UserPromptSubmit", "peer", "/proj/peer", 9, None, 3.0)  # peer busy
+    reg.update_context({5: _ctx(peer_name="p", peer_pid=9, interrupted=True, activity=100.0),
+                        9: _ctx()}, now=101.0)
+    sender = [s for s in reg.sessions() if s.session_id == "sender"][0]
+    assert sender.waiting_for == ""  # you stopped it: green, not "waits for peer"

@@ -431,3 +431,35 @@ def test_peer_addressed_by_socket_path_resolves_to_its_pid(tmp_path):
                       [_send(T0, "uds:/run/user/1000/cc-socks/1589039.sock")])
     info = context.session_context(7, claude_dir=tmp_path, now=NOW_EPOCH)
     assert (info.peer_name, info.peer_pid) == ("session 1589039", 1589039)
+
+
+def _interrupt(iso, text="[Request interrupted by user]"):
+    return _entry_at(iso, type="user", message={"role": "user",
+                                                "content": [{"type": "text", "text": text}]})
+
+
+def test_interrupt_marker_detected(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [_assistant(1, 100, 0), _interrupt(T0)])
+    assert context.read_context(path, now=NOW_EPOCH).interrupted is True
+
+
+def test_interrupt_for_tool_use_detected(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [
+        _assistant(1, 100, 0), _interrupt(T0, "[Request interrupted by user for tool use]")])
+    assert context.read_context(path, now=NOW_EPOCH).interrupted is True
+
+
+def test_interrupt_cleared_by_the_next_prompt(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [
+        _assistant(1, 100, 0),
+        _interrupt(T0),
+        _entry_at(T0, type="user", message={"role": "user", "content": "do it differently"}),
+    ])
+    assert context.read_context(path, now=NOW_EPOCH).interrupted is False
+
+
+def test_prose_quoting_the_interrupt_marker_is_not_an_interrupt(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [
+        _text_turn(T0, "When you press Esc the transcript records "
+                       "[Request interrupted by user] as a user entry.")])
+    assert context.read_context(path, now=NOW_EPOCH).interrupted is False
