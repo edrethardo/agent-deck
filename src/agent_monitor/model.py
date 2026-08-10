@@ -30,6 +30,10 @@ class Session:
     question: bool = False  # transcript shows an unanswered AskUserQuestion/plan
     #                         approval — renders red like WAITING (VS Code fires
     #                         no Notification hook, this path needs no hooks)
+    blocked: bool = False   # stopped on a usage-limit notice: needs a model
+    #                         switch or credits before it can continue (red)
+    waiting_for: str = ""   # name of a peer session it dispatched work to and
+    #                         whose reply is still outstanding (yellow, never green)
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +50,8 @@ class Session:
             "model": self.model,
             "effort": self.effort,
             "question": self.question,
+            "blocked": self.blocked,
+            "waiting_for": self.waiting_for,
         }
 
     @classmethod
@@ -64,6 +70,8 @@ class Session:
             model=str(d.get("model", "")),
             effort=str(d.get("effort", "")),
             question=bool(d.get("question", False)),
+            blocked=bool(d.get("blocked", False)),
+            waiting_for=str(d.get("waiting_for", "")),
         )
 
 

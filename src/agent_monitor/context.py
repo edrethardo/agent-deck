@@ -38,6 +38,11 @@ class ContextInfo:
     activity: float = 0.0   # newest mtime of transcript + subagent files —
     #                         autonomous re-invocations and background agents
     #                         fire no UserPromptSubmit, only the files move
+    blocked: bool = False   # ended on a usage/rate-limit message: the session
+    #                         cannot continue without the user (model switch,
+    #                         credits) and no hook reports it
+    peer_name: str = ""     # a peer session it sent work to and awaits
+    peer_pid: int = 0       # that peer's pid, resolved via the sessions dir
 
 
 # Tools that block on USER input by design — an unresolved call at the tail of
@@ -45,6 +50,23 @@ class ContextInfo:
 # (Bash, Agent, ...) stay unresolved for minutes while simply RUNNING, so they
 # must never count.
 BLOCKING_TOOLS = frozenset({"AskUserQuestion", "ExitPlanMode"})
+
+# A turn that consists of nothing but a short limit notice — the session is
+# stuck until the user switches model or buys credits. Matched only against a
+# lone short text block, and the notice must OPEN the message: prose that
+# merely mentions limits ("when you've reached your weekly limit, the bar
+# turns red") must never light a key red.
+LIMIT_START_RE = re.compile(
+    r"\s*(claude\s+)?((you'?ve|you have)\s+reached\s+your\b.{0,40}\blimit"
+    r"|usage\s+limit\s+reached)",
+    re.IGNORECASE)
+# Actionable markers only Claude Code's own notice carries.
+LIMIT_MARKER_RE = re.compile(r"(/usage-credits|limit will reset at)", re.IGNORECASE)
+MAX_LIMIT_MSG_LEN = 400
+SHORT_NOTICE_LEN = 200
+PEER_WAIT_WINDOW_S = 1800.0  # a dispatched peer task is "in flight" this long
+# Replies address the peer by its messaging socket instead of its name.
+UDS_PID_RE = re.compile(r"cc-socks/(\d+)\.sock")
 
 
 @dataclass(frozen=True)
@@ -91,7 +113,47 @@ def settings_large_model(claude_dir: Path | None = None) -> str | None:
     return model_short(model.removesuffix("[1m]"))
 
 
-def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None:
+def _entry_epoch(entry: dict) -> float:
+    raw = entry.get("timestamp")
+    if not raw:
+        return 0.0
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _is_limit_notice(entry: dict) -> bool:
+    """True if this assistant turn is nothing but a usage-limit notice."""
+    content = (entry.get("message") or {}).get("content") or []
+    blocks = [b for b in content if isinstance(b, dict) and b.get("type") != "thinking"]
+    if len(blocks) != 1 or blocks[0].get("type") != "text":
+        return False
+    text = str(blocks[0].get("text") or "")
+    if len(text) > MAX_LIMIT_MSG_LEN:
+        return False
+    if LIMIT_START_RE.match(text):
+        return True
+    return len(text) <= SHORT_NOTICE_LEN and LIMIT_MARKER_RE.search(text) is not None
+
+
+def session_names(claude_dir: Path | None = None) -> dict[str, int]:
+    """Session name (as ListAgents/SendMessage use it) -> pid."""
+    claude_dir = claude_dir or CLAUDE_DIR
+    out: dict[str, int] = {}
+    for path in (claude_dir / "sessions").glob("*.json"):
+        try:
+            meta = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        name, pid = meta.get("name"), meta.get("pid")
+        if name and isinstance(pid, int):
+            out[str(name)] = pid
+    return out
+
+
+def read_context(path: Path, large_for: str | None = None,
+                 now: float | None = None) -> ContextInfo | None:
     """Context info from the last main-thread assistant entry in `path`.
 
     Window size: 200k by default, 1m when proven. The 1m beta rides an HTTP
@@ -106,9 +168,11 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
             tail = f.read()
     except OSError:
         return None
+    now = now if now is not None else time.time()
     last: tuple[int, str, str] | None = None  # (tokens, model, effort)
     max_tokens = 0
     tail_entry: dict | None = None  # last main-chain user/assistant entry
+    peer_name = ""
     for raw in tail.splitlines():
         try:
             entry = json.loads(raw)
@@ -122,6 +186,16 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
             tail_entry = entry
         if entry.get("type") != "assistant":
             continue
+        for blk in (entry.get("message") or {}).get("content") or []:
+            # Work handed to a peer session: SendMessage returns immediately,
+            # so nothing else in THIS session marks the wait for the reply.
+            if isinstance(blk, dict) and blk.get("type") == "tool_use" \
+                    and blk.get("name") == "SendMessage":
+                if now - _entry_epoch(entry) <= PEER_WAIT_WINDOW_S:
+                    to = str((blk.get("input") or {}).get("to") or "")
+                    peer_name = to.split(" [")[0].strip()
+                else:
+                    peer_name = ""
         message = entry.get("message") or {}
         usage = message.get("usage") or {}
         model = str(message.get("model") or "")
@@ -135,8 +209,9 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
         last = (tokens, model, str(entry.get("effort") or ""))
     if last is None:
         return None
-    question = False
+    question = blocked = False
     if tail_entry is not None and tail_entry.get("type") == "assistant":
+        blocked = _is_limit_notice(tail_entry)
         # A resolved call would be followed by a user(tool_result) entry, an
         # interrupted one by a user text entry — so pending means: the very
         # last conversation entry is an assistant message calling a tool that
@@ -155,6 +230,8 @@ def read_context(path: Path, large_for: str | None = None) -> ContextInfo | None
         model=short,
         effort=effort,
         question=question,
+        blocked=blocked,
+        peer_name=peer_name,
     )
 
 
@@ -173,14 +250,29 @@ def session_activity(path: Path) -> float:
     return latest
 
 
-def session_context(pid: int, claude_dir: Path | None = None) -> ContextInfo | None:
+def session_context(pid: int, claude_dir: Path | None = None,
+                    now: float | None = None) -> ContextInfo | None:
     path = transcript_path(pid, claude_dir)
     if path is None:
         return None
-    info = read_context(path, large_for=settings_large_model(claude_dir))
+    info = read_context(path, large_for=settings_large_model(claude_dir), now=now)
     if info is None:
         return None
-    return dataclasses.replace(info, activity=session_activity(path))
+    peer_name, peer_pid = info.peer_name, 0
+    if peer_name:
+        uds = UDS_PID_RE.search(peer_name)
+        if uds:
+            peer_pid = int(uds.group(1))
+            peer_name = f"session {peer_pid}"
+            # prefer the readable name if that pid still has one
+            for name, pid in session_names(claude_dir).items():
+                if pid == peer_pid:
+                    peer_name = name
+                    break
+        else:
+            peer_pid = session_names(claude_dir).get(peer_name, 0)
+    return dataclasses.replace(info, activity=session_activity(path),
+                               peer_name=peer_name, peer_pid=peer_pid)
 
 
 def _parse_utilization(util: dict, now: datetime) -> list[UsageLimit]:

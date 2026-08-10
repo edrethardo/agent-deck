@@ -157,3 +157,26 @@ def test_pending_question_lights_red():
     sess = _sess(0, Status.BUSY)
     sess.question = True
     assert led_colors([sess])[0:3] == [int(255 * BRIGHTNESS), 0, 0]
+
+
+def test_blocked_session_lights_red():
+    sess = _sess(0)
+    sess.blocked = True
+    assert led_colors([sess])[0:3] == [int(255 * BRIGHTNESS), 0, 0]
+
+
+def test_session_waiting_for_a_peer_is_yellow_not_green():
+    sess = _sess(0)
+    sess.finished = True          # would be green
+    sess.waiting_for = "peer-9e"
+    assert led_colors([sess])[0:3] == [int(255 * BRIGHTNESS), int(160 * BRIGHTNESS), 0]
+
+
+def test_overlay_explains_blocked_and_peer_wait():
+    a = _sess(0)
+    a.model, a.context_pct, a.blocked = "fable-5", 40, True
+    b = _sess(1, sid="b")
+    b.waiting_for = "unternehmen-9e"
+    info = overlay_info([a, b])
+    assert info[0].startswith("LIMIT REACHED")
+    assert info[1].startswith("waits: unternehmen-9e")

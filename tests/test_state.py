@@ -329,3 +329,58 @@ def test_cwd_is_frozen_at_creation():
     reg.apply_event("UserPromptSubmit", "a", "/proj/a/docs/plans", 100, None, 2.0)
     (s,) = reg.sessions()
     assert s.cwd == "/proj/a"  # key identity and name must not drift
+
+
+def _ctx(**kw):
+    from agent_monitor.context import ContextInfo
+    base = dict(percent=10, model="fable-5", effort="high")
+    base.update(kw)
+    return ContextInfo(**base)
+
+
+def test_blocked_flag_is_adopted():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    assert reg.update_context({5: _ctx(blocked=True)}, now=10.0) is True
+    assert reg.sessions()[0].blocked is True
+    assert reg.update_context({5: _ctx(blocked=False)}, now=11.0) is True
+    assert reg.sessions()[0].blocked is False
+
+
+def test_waiting_for_peer_set_while_the_peer_is_busy():
+    reg = SessionRegistry()
+    _start(reg, "sender", t=1.0, pid=5)
+    _start(reg, "peer", t=1.0, pid=9)
+    reg.apply_event("Stop", "sender", "/proj/sender", 5, None, 2.0)   # green
+    reg.apply_event("UserPromptSubmit", "peer", "/proj/peer", 9, None, 3.0)  # peer works
+    reg.update_context({5: _ctx(peer_name="peer-9e", peer_pid=9), 9: _ctx()}, now=10.0)
+    sender = [s for s in reg.sessions() if s.session_id == "sender"][0]
+    assert sender.waiting_for == "peer-9e"
+
+
+def test_waiting_for_a_blocked_peer_also_counts():
+    reg = SessionRegistry()
+    _start(reg, "sender", pid=5)
+    _start(reg, "peer", pid=9)
+    reg.update_context({5: _ctx(peer_name="p", peer_pid=9), 9: _ctx(blocked=True)}, now=10.0)
+    sender = [s for s in reg.sessions() if s.session_id == "sender"][0]
+    assert sender.waiting_for == "p"
+
+
+def test_waiting_for_cleared_when_the_peer_goes_idle():
+    reg = SessionRegistry()
+    _start(reg, "sender", pid=5)
+    _start(reg, "peer", pid=9)
+    reg.apply_event("UserPromptSubmit", "peer", "/proj/peer", 9, None, 3.0)
+    reg.update_context({5: _ctx(peer_name="p", peer_pid=9), 9: _ctx()}, now=10.0)
+    reg.apply_event("Stop", "peer", "/proj/peer", 9, None, 4.0)  # peer answered
+    reg.update_context({5: _ctx(peer_name="p", peer_pid=9), 9: _ctx()}, now=11.0)
+    sender = [s for s in reg.sessions() if s.session_id == "sender"][0]
+    assert sender.waiting_for == ""
+
+
+def test_unknown_peer_pid_does_not_set_waiting():
+    reg = SessionRegistry()
+    _start(reg, "sender", pid=5)
+    reg.update_context({5: _ctx(peer_name="ghost", peer_pid=999)}, now=10.0)
+    assert reg.sessions()[0].waiting_for == ""

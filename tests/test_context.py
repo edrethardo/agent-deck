@@ -342,3 +342,92 @@ def test_session_context_attaches_activity(tmp_path):
     path = _write_transcript(tmp_path, "-home-x-p", "sid", [_assistant(1, 10, 0)])
     os.utime(path, (1234.0, 1234.0))
     assert context.session_context(7, claude_dir=tmp_path).activity == 1234.0
+
+
+def _entry_at(iso, **kw):
+    e = {"isSidechain": False, "timestamp": iso}
+    e.update(kw)
+    return e
+
+
+def _text_turn(iso, text):
+    return _entry_at(iso, type="assistant", message={
+        "model": "claude-fable-5", "usage": {"input_tokens": 1, "cache_read_input_tokens": 100,
+                                             "cache_creation_input_tokens": 0, "output_tokens": 1},
+        "content": [{"type": "text", "text": text}]})
+
+
+LIMIT_TEXT = ("You've reached your Fable 5 limit. Run /usage-credits to continue "
+              "or switch models with /model.")
+T0 = "2026-08-10T12:00:00.000Z"
+NOW_EPOCH = datetime(2026, 8, 10, 12, 5, tzinfo=timezone.utc).timestamp()
+
+
+def test_usage_limit_message_marks_session_blocked(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [_assistant(1, 100, 0), _text_turn(T0, LIMIT_TEXT)])
+    assert context.read_context(path, now=NOW_EPOCH).blocked is True
+
+
+def test_prose_about_limits_is_not_blocked(tmp_path):
+    prose = ("The daemon reads the usage cache; when you've reached your weekly limit "
+             "the bar turns red, and the deck keeps showing the last known value until "
+             "Claude Code refreshes it, which it does on its own schedule while sessions run.")
+    path = _write_transcript(tmp_path, "-p", "s", [_assistant(1, 100, 0), _text_turn(T0, prose)])
+    assert context.read_context(path, now=NOW_EPOCH).blocked is False
+
+
+def test_block_clears_once_the_session_continues(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [
+        _text_turn(T0, LIMIT_TEXT),
+        _entry_at(T0, type="user", message={"role": "user", "content": "switched model, go on"}),
+        _text_turn(T0, "Weiter geht's."),
+    ])
+    assert context.read_context(path, now=NOW_EPOCH).blocked is False
+
+
+def _send(iso, to):
+    return _entry_at(iso, type="assistant", message={
+        "model": "claude-fable-5", "usage": {"input_tokens": 1, "cache_read_input_tokens": 100,
+                                             "cache_creation_input_tokens": 0, "output_tokens": 1},
+        "content": [{"type": "tool_use", "id": "t1", "name": "SendMessage",
+                     "input": {"to": to, "message": "do the thing"}}]})
+
+
+def test_sendmessage_records_the_peer_it_awaits(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [
+        _send(T0, "unternehmen-9e [4f20a4]"),
+        _text_turn(T0, "Auftrag ist raus."),   # own turn continues afterwards
+    ])
+    assert context.read_context(path, now=NOW_EPOCH).peer_name == "unternehmen-9e"
+
+
+def test_old_sendmessage_is_forgotten(tmp_path):
+    old = "2026-08-10T10:00:00.000Z"  # 2 h before NOW
+    path = _write_transcript(tmp_path, "-p", "s", [_send(old, "peer-x"), _text_turn(old, "done")])
+    assert context.read_context(path, now=NOW_EPOCH).peer_name == ""
+
+
+def test_session_names_maps_names_to_pids(tmp_path):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "42.json").write_text(json.dumps(
+        {"pid": 42, "sessionId": "x", "cwd": "/c", "name": "unternehmen-9e"}))
+    assert context.session_names(claude_dir=tmp_path) == {"unternehmen-9e": 42}
+
+
+def test_session_context_resolves_peer_pid(tmp_path):
+    _write_session(tmp_path, 7, "sid", "/home/x/p")
+    (tmp_path / "sessions" / "42.json").write_text(json.dumps(
+        {"pid": 42, "sessionId": "y", "cwd": "/c", "name": "peer-9e"}))
+    _write_transcript(tmp_path, "-home-x-p", "sid", [_send(T0, "peer-9e [ab12]")])
+    info = context.session_context(7, claude_dir=tmp_path, now=NOW_EPOCH)
+    assert (info.peer_name, info.peer_pid) == ("peer-9e", 42)
+
+
+def test_peer_addressed_by_socket_path_resolves_to_its_pid(tmp_path):
+    # replies address the sender by its messaging socket, not by name
+    _write_session(tmp_path, 7, "sid", "/home/x/p")
+    _write_transcript(tmp_path, "-home-x-p", "sid",
+                      [_send(T0, "uds:/run/user/1000/cc-socks/1589039.sock")])
+    info = context.session_context(7, claude_dir=tmp_path, now=NOW_EPOCH)
+    assert (info.peer_name, info.peer_pid) == ("session 1589039", 1589039)

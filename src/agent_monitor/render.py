@@ -11,6 +11,7 @@ NUM_KEY_LEDS = 16
 KEY_LEDS = list(range(NUM_KEY_LEDS))
 BRIGHTNESS = 0.4
 MAX_OLED_LINES = 8
+MAX_NAME_LEN = 25  # OLED fits ~25 chars of the size-8 mono font per line
 CTX_WARN_PCT = 85  # a session this close to auto-compact gets a visible marker
 
 # Active states keep fixed colors; the idle color encodes reachability:
@@ -26,8 +27,14 @@ FINISHED_COLOR = (0, 255, 0)  # green: recently finished a task (decays to idle)
 
 
 def _color_for(sess: Session) -> tuple[int, int, int]:
-    if sess.question:
-        return COLORS[Status.WAITING]  # a human is being asked — red wins
+    if sess.question or sess.blocked:
+        # a human is being asked, or the session hit its usage limit and
+        # cannot continue without one — red either way
+        return COLORS[Status.WAITING]
+    if sess.waiting_for:
+        # the answer is being written in another session: work in flight,
+        # nothing finished here — never green
+        return COLORS[Status.BUSY]
     fixed = COLORS.get(sess.status)
     if fixed is not None:
         return fixed
@@ -85,6 +92,10 @@ def overlay_info(sessions: list[Session], notes: dict[int, str] | None = None) -
         if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
             continue
         parts = []
+        if sess.blocked:
+            parts.append("LIMIT REACHED")
+        if sess.waiting_for:
+            parts.append(f"waits: {sess.waiting_for}"[:MAX_NAME_LEN])
         if sess.model:
             parts.append(f"{sess.model} {sess.effort}".strip())
         if sess.context_pct is not None:
@@ -95,9 +106,6 @@ def overlay_info(sessions: list[Session], notes: dict[int, str] | None = None) -
         if text and 0 <= slot < NUM_KEY_LEDS:
             out[slot] = f"{text}\n{out[slot]}".rstrip("\n")
     return out
-
-
-MAX_NAME_LEN = 25  # OLED fits ~25 chars of the size-8 mono font per line
 
 
 def key_names(sessions: list[Session]) -> list[str]:

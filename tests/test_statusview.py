@@ -140,3 +140,15 @@ def test_question_shows_waiting_label():
          "slot": 0, "since": 40.0, "question": True}]}
     out = render_status(state, now=100.0, daemon_up=True, width=120)
     assert "waiting for input" in out
+
+
+def test_blocked_and_peer_wait_labels():
+    state = {"sessions": [
+        {"session_id": "a", "cwd": "/p/x", "pid": 1, "status": "available",
+         "slot": 0, "since": 40.0, "blocked": True},
+        {"session_id": "b", "cwd": "/p/y", "pid": 2, "status": "available",
+         "slot": 1, "since": 40.0, "finished": True, "waiting_for": "peer-9e"},
+    ]}
+    out = render_status(state, now=100.0, daemon_up=True, width=140)
+    assert "limit reached" in out
+    assert "waits for peer-9e" in out

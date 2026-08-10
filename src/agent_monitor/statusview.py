@@ -87,8 +87,12 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
         label, style = STATUS_LABEL.get(sess.get("status"), (escape(str(sess.get("status"))), ""))
         if sess.get("status") == "available" and sess.get("finished"):
             label, style = "finished", "green"
+        if sess.get("waiting_for"):
+            label, style = f"waits for {escape(str(sess['waiting_for']))}", "yellow"
         if sess.get("question"):
             label, style = STATUS_LABEL["waiting"]
+        if sess.get("blocked"):
+            label, style = "limit reached", "red bold"
         slot = sess.get("slot")
         key = "—" if slot is None else str(slot + 1)
         model = f"{sess.get('model', '')} {sess.get('effort', '')}".strip()

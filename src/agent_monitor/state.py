@@ -168,9 +168,10 @@ class SessionRegistry:
             info = infos.get(sess.pid)
             if info is None:
                 continue
-            new = (info.percent, info.model, info.effort, info.question)
-            if (sess.context_pct, sess.model, sess.effort, sess.question) != new:
-                sess.context_pct, sess.model, sess.effort, sess.question = new
+            new = (info.percent, info.model, info.effort, info.question, info.blocked)
+            if (sess.context_pct, sess.model, sess.effort, sess.question, sess.blocked) != new:
+                (sess.context_pct, sess.model, sess.effort,
+                 sess.question, sess.blocked) = new
                 changed = True
             if (sess.status is Status.AVAILABLE
                     and now is not None
@@ -183,6 +184,28 @@ class SessionRegistry:
                 sess.status = Status.BUSY
                 sess.since = info.activity
                 sess.finished = False
+                changed = True
+        return self._update_peer_waits(infos) or changed
+
+    def _update_peer_waits(self, infos: dict[int, "ContextInfo | None"]) -> bool:
+        """Mark sessions whose dispatched peer task is still in flight.
+
+        Work handed to another session lives in THAT session — the sender sits
+        idle with a Stop as its last event and would otherwise read as green
+        ("finished, come look") while the answer is still being written."""
+        by_pid = {s.pid: s for s in self._sessions.values()}
+        changed = False
+        for sess in self._sessions.values():
+            info = infos.get(sess.pid)
+            waiting = ""
+            if info is not None and info.peer_pid:
+                peer = by_pid.get(info.peer_pid)
+                if peer is not None and peer is not sess and (
+                        peer.status in (Status.BUSY, Status.WAITING)
+                        or peer.question or peer.blocked):
+                    waiting = info.peer_name
+            if sess.waiting_for != waiting:
+                sess.waiting_for = waiting
                 changed = True
         return changed
 
