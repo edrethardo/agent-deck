@@ -6,7 +6,7 @@ Run half a dozen Claude Code sessions in parallel and you lose track of which on
 
 - 🟢 **green** — **recently finished a task**: a fresh result is waiting for you (fades to blue/white after 10 min)
 - 🟡 **yellow** — Claude is working
-- 🔴 **red** — Claude is **blocked waiting for your input** (permission prompt, question, plan approval)
+- 🔴 **red** — Claude is **blocked waiting for you** (permission prompt, question, plan approval — or it hit a usage limit and needs a model switch / credits)
 - 🔵 **blue** — session is idle and **remote-controllable**: pick it up from your phone
 - ⚪ **white** — session is idle but only reachable at the PC (includes sessions from before the hooks were installed — reload those to get live status)
 
@@ -116,6 +116,8 @@ The OLED idles on the account usage screen: `5h` (current session window) and `7
 
 Session details (model, effort, context %) come from Claude Code's own transcripts — read-only, refreshed every 10 s. The context window size is inferred (200k, or 1m when the model tag, the settings default, or an observed >200k turn proves it), so a fresh low-context session on a 1m model briefly shows a conservative (too high) percentage.
 
+A session that handed work to **another session** (`SendMessage`) shows yellow with `waits: <peer>` on its overlay while that peer is still working — the sender is idle, but nothing is finished, so it must not claim green. And a session that stopped on a **usage-limit notice** turns red: it cannot continue until you switch model or add credits, and no hook reports that.
+
 Autonomous work is invisible to hooks: background subagents and their completion re-invocations never fire `UserPromptSubmit`, so hook state alone would flash green mid-run. The daemon therefore also watches the transcript and subagent files — a write newer than the last Stop flips the key back to yellow within 10 s, and the next real Stop turns it green. Green during a long autonomous run is a **signal**, not a glitch: the run has stopped and wants your attention.
 
 ## CLI
@@ -142,7 +144,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ## Development
 
 ```bash
-uv run pytest -q                                # 191 tests
+uv run pytest -q                                # 208 tests
 uvx esphome config firmware/deepdeck.yaml       # firmware schema check
 uvx esphome compile firmware/deepdeck.yaml      # full build
 ```
