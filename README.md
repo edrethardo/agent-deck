@@ -10,6 +10,8 @@ Run half a dozen Claude Code sessions in parallel and you lose track of which on
 - 🔵 **blue** — session is idle and **remote-controllable**: pick it up from your phone
 - ⚪ **white** — session is idle but only reachable at the PC (includes sessions from before the hooks were installed — reload those to get live status)
 
+Sessions on **other machines** get keys too: if you have a VS Code Remote-SSH window open, the daemon probes that host over your existing SSH access and shows its sessions with `@host` on the overlay — nothing is installed on the remote machine.
+
 Red works **in VS Code too** — permission prompts arrive via Claude Code's permission hooks, and questions/plan approvals are detected straight from the session transcript. Sessions running **autonomously** (background subagents, multi-agent runs) stay yellow even though no hooks fire for that work — so a green key on a long run means the run has genuinely stopped and is waiting for you, not that you missed a notification.
 
 The OLED idles on your **account usage** — the same 5-hour and weekly percentages `/usage` shows, as bars you can read across the desk. Press a key to see which project lives there plus its **model, reasoning effort and context usage** (handy on the phone, which shows none of those); double-press to **jump straight to that session's window** on your desktop; hold a key to rearrange the board; the knobs handle brightness, the context menu, and the notification LEDs.
@@ -28,6 +30,8 @@ Claude Code sessions ──hooks──▶  agent-monitor daemon  ──ESPHome A
 ```
 
 Claude Code [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) fire on session start/prompt/notification/stop and on the permission-dialog lifecycle, and send one JSON line to a Unix socket. The daemon keeps a registry (16 stable key slots, dead-process pruning, atomic state file), renders LED colors + OLED text, and pushes the full display state to the pad on every change. A periodic `/proc` scan discovers sessions that predate the hook installation, and a 10 s tick reads each session's transcript tail for context %, model, pending questions, and signs of autonomous activity. The pad itself is a dumb display — all logic lives on the PC, so firmware updates are rare and go over the air.
+
+**Remote sessions** (VS Code Remote-SSH) are read the same way, just further away: every 30 s the daemon pipes a self-contained probe — this project's own transcript reader plus a small main block — through `ssh <host> python3 -` and gets JSON back. Nothing is installed on the remote host, `BatchMode` means it never prompts for a passphrase, and only hosts you already have a Remote-SSH window open to are contacted (they are discovered from the running tunnels). Those sessions have no hooks, so their status comes entirely from the transcript; the probe reports an *age* rather than a timestamp, so clock skew between the machines cannot mislead the board. An unreachable host keeps its keys until it answers again.
 
 Everything is **read-only** against Claude Code's own files (`~/.claude/`): transcripts, session metadata, and the usage cache. The only network call the daemon ever makes is an optional usage fetch to `api.anthropic.com` (same endpoint the phone app uses, with the OAuth token already on disk, at most once per 10 minutes) when the local cache is stale. Nothing is written into Claude Code's state, and nothing leaves your machine otherwise.
 
@@ -135,6 +139,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 - **`pad firmware mismatch` in `journalctl --user -u agent-monitor`** — reflash OTA and restart the daemon (see version coupling above).
 - **A menu action shows `locked` / `failed` / `no window`** — that is the daemon's honest result on the key's overlay: `locked` = unlock the PC (the injection cannot reach VS Code through a screen locker), `no window` = no window matching that project, `failed` = see `journalctl --user -u agent-monitor` for the reason.
 - **Double-press does nothing** — is `wmctrl` installed? Does `systemctl --user show-environment` contain `DISPLAY`? Check the journal for `focus request` lines.
+- **A remote (Remote-SSH) session doesn't appear** — the daemon only probes hosts with an open Remote-SSH window, and only over key-based SSH: check `ssh -o BatchMode=yes <host> true` works without a prompt, that `python3` exists there, and look for `remote probe` lines in `journalctl --user -u agent-monitor`. Remote sessions never turn blue/RC — remote-control state is not part of the probe.
 - **More than 16 sessions** — extras get no key (overflow) but stay visible in the CLI; real sessions evict blue scanned entries when keys run short.
 - **A knob does nothing, or turns the wrong way** — encoder wiring varies between builds. Left knob lives on GPIO25/26 (button 34), right knob on GPIO32/33 (button 27) in `firmware/deepdeck.yaml`: swap the two pin *pairs* if your knobs are exchanged, or swap `pin_a`/`pin_b` within one knob if its direction is inverted; reflash OTA.
 - **Remote-control OFF doesn't change the color** (when toggled *inside* the session) — `/remote-control off` leaves the relay socket open and no external trace, so the detector only catches it after a session restart. Toggling **via the pad menu** is exact and instant: the daemon initiated it, so it pins the known state itself until the session restarts.
@@ -144,7 +149,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ## Development
 
 ```bash
-uv run pytest -q                                # 215 tests
+uv run pytest -q                                # 232 tests
 uvx esphome config firmware/deepdeck.yaml       # firmware schema check
 uvx esphome compile firmware/deepdeck.yaml      # full build
 ```
