@@ -65,6 +65,8 @@ def _probe_main() -> None:
             "blocked": info.blocked,
             "interrupted": info.interrupted,
             "peer_name": info.peer_name,
+            # remote-control state has to be read where the sockets are
+            "remote": has_remote_control(pid),
             # age, not a timestamp: the two machines' clocks need not agree
             "age": max(0.0, now - info.activity) if info.activity else 1e9,
         })
@@ -75,10 +77,21 @@ _probe_main()
 '''
 
 
+# Both modules are stdlib-only and import nothing from this package, so they
+# can simply be concatenated into one script.
+PROBE_MODULES = ("context.py", "scan.py")
+_FUTURE = "from __future__ import annotations"
+
+
 def probe_script() -> str:
-    """The self-contained probe: context.py + a main that prints JSON."""
-    source = (Path(__file__).with_name("context.py")).read_text()
-    return source + PROBE_MAIN
+    """The self-contained probe: our readers + a main that prints JSON."""
+    parts = [(Path(__file__).with_name(name)).read_text() for name in PROBE_MODULES]
+    body = "\n".join(
+        "\n".join(line for line in part.splitlines() if line.strip() != _FUTURE)
+        for part in parts
+    )
+    # a __future__ import is only legal as the first statement of the file
+    return f"{_FUTURE}\n{body}{PROBE_MAIN}"
 
 
 def discover_hosts(run=subprocess.run) -> list[str]:

@@ -139,7 +139,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 - **`pad firmware mismatch` in `journalctl --user -u agent-monitor`** — reflash OTA and restart the daemon (see version coupling above).
 - **A menu action shows `locked` / `failed` / `no window`** — that is the daemon's honest result on the key's overlay: `locked` = unlock the PC (the injection cannot reach VS Code through a screen locker), `no window` = no window matching that project, `failed` = see `journalctl --user -u agent-monitor` for the reason.
 - **Double-press does nothing** — is `wmctrl` installed? Does `systemctl --user show-environment` contain `DISPLAY`? Check the journal for `focus request` lines.
-- **A remote (Remote-SSH) session doesn't appear** — the daemon only probes hosts with an open Remote-SSH window, and only over key-based SSH: check `ssh -o BatchMode=yes <host> true` works without a prompt, that `python3` exists there, and look for `remote probe` lines in `journalctl --user -u agent-monitor`. Remote sessions never turn blue/RC — remote-control state is not part of the probe.
+- **A remote (Remote-SSH) session doesn't appear** — the daemon only probes hosts with an open Remote-SSH window, and only over key-based SSH: check `ssh -o BatchMode=yes <host> true` works without a prompt, that `python3` exists there, and look for `remote probe` lines in `journalctl --user -u agent-monitor`. Remote-control state is detected on the remote host itself, so those keys go blue like any other.
 - **More than 16 sessions** — extras get no key (overflow) but stay visible in the CLI; real sessions evict blue scanned entries when keys run short.
 - **A knob does nothing, or turns the wrong way** — encoder wiring varies between builds. Left knob lives on GPIO25/26 (button 34), right knob on GPIO32/33 (button 27) in `firmware/deepdeck.yaml`: swap the two pin *pairs* if your knobs are exchanged, or swap `pin_a`/`pin_b` within one knob if its direction is inverted; reflash OTA.
 - **Remote-control OFF doesn't change the color** (when toggled *inside* the session) — `/remote-control off` leaves the relay socket open and no external trace, so the detector only catches it after a session restart. Toggling **via the pad menu** is exact and instant: the daemon initiated it, so it pins the known state itself until the session restarts.
@@ -149,7 +149,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ## Development
 
 ```bash
-uv run pytest -q                                # 232 tests
+uv run pytest -q                                # 235 tests
 uvx esphome config firmware/deepdeck.yaml       # firmware schema check
 uvx esphome compile firmware/deepdeck.yaml      # full build
 ```

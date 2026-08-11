@@ -297,6 +297,13 @@ class SessionRegistry:
                  sess.context_pct, sess.question, sess.blocked) = new
                 changed = True
             sess.cwd = sess.cwd or cwd
+            if not sess.rc_manual:
+                # the probe read this off the remote's own sockets; a pad
+                # toggle still wins, exactly as for local sessions
+                flag = bool(entry.get("remote"))
+                if sess.remote != flag:
+                    sess.remote = flag
+                    changed = True
         for sid in [s for s, sess in self._sessions.items()
                     if sess.host == host and s not in seen]:
             self._remember_slot(self._sessions[sid])

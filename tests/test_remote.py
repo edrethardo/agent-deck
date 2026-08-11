@@ -76,3 +76,37 @@ def test_probe_all_skips_unreachable_hosts(monkeypatch):
         return SimpleNamespace(stdout=json.dumps({"sessions": [{"pid": 1}]}), stderr="",
                                returncode=0)
     assert remote.probe_all(hosts=["good", "bad"], run=run) == {"good": [{"pid": 1}]}
+
+
+def test_probe_script_carries_the_rc_detector_and_one_future_import():
+    script = remote.probe_script()
+    assert "def has_remote_control" in script
+    assert "def read_context" in script
+    lines = script.splitlines()
+    assert lines[0] == "from __future__ import annotations"
+    assert sum(1 for line in lines if line.strip() == lines[0]) == 1
+
+
+def test_probe_reports_remote_control(tmp_path, monkeypatch):
+    import os
+    # a session file + a live pid (ours), with the RC check stubbed inside the probe
+    sessions = tmp_path / ".claude" / "sessions"
+    sessions.mkdir(parents=True)
+    sessions.joinpath(f"{os.getpid()}.json").write_text(json.dumps(
+        {"pid": os.getpid(), "sessionId": "sid", "cwd": str(tmp_path), "name": "n"}))
+    proj = tmp_path / ".claude" / "projects" / str(tmp_path).replace("/", "-")
+    proj.mkdir(parents=True)
+    proj.joinpath("sid.jsonl").write_text(json.dumps({
+        "type": "assistant", "isSidechain": False, "timestamp": "2026-08-11T00:00:00Z",
+        "message": {"model": "claude-opus-5", "usage": {"input_tokens": 1,
+                    "cache_read_input_tokens": 10, "cache_creation_input_tokens": 0,
+                    "output_tokens": 1}, "content": [{"type": "text", "text": "hi"}]}}) + "\n")
+    script = remote.probe_script().replace(
+        "def has_remote_control(pid: int) -> bool:",
+        "def has_remote_control(pid):\n    return True\n\ndef _unused(pid):")
+    res = subprocess.run(["python3", "-c", script], capture_output=True, text=True, timeout=30,
+                         env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"})
+    assert res.returncode == 0, res.stderr
+    (session,) = json.loads(res.stdout)["sessions"]
+    assert session["remote"] is True
+    assert session["model"] == "opus-5"

@@ -491,3 +491,13 @@ def test_unchanged_remote_probe_reports_no_change():
     reg = SessionRegistry()
     reg.sync_remote("box", [_rsess(age=3.0)], now=1000.0)
     assert reg.sync_remote("box", [_rsess(age=4.0)], now=1001.0) is False
+
+
+def test_remote_session_adopts_its_rc_flag_but_a_pad_pin_wins():
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess(remote=True)], now=1.0)
+    (s,) = reg.sessions()
+    assert s.remote is True
+    reg.set_remote_manual(s.slot, False)          # toggled off from the pad menu
+    reg.sync_remote("box", [_rsess(remote=True)], now=2.0)
+    assert s.remote is False                      # the known state is not overwritten
