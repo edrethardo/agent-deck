@@ -14,6 +14,7 @@ def _run_daemon() -> int:
     from .context import UsageProvider, session_context
     from .daemon import Daemon
     from .pad import DeepDeckPad
+    from .remote import probe_all
     from .scan import claude_processes, has_remote_control
     from .state import SessionRegistry
 
@@ -24,7 +25,8 @@ def _run_daemon() -> int:
     try:
         daemon = Daemon(SessionRegistry(), None, paths.state_path(), paths.socket_path(),
                         scan_fn=claude_processes, rc_fn=has_remote_control,
-                        ctx_fn=session_context, usage_fn=UsageProvider())
+                        ctx_fn=session_context, usage_fn=UsageProvider(),
+                        remote_fn=probe_all)
         pad = DeepDeckPad(
             cfg, on_focus=daemon.focus_slot, on_move=daemon.move_slot, on_action=daemon.action_slot
         ) if cfg else None

@@ -152,3 +152,11 @@ def test_blocked_and_peer_wait_labels():
     out = render_status(state, now=100.0, daemon_up=True, width=140)
     assert "limit reached" in out
     assert "waits for peer-9e" in out
+
+
+def test_remote_session_shows_host_with_project():
+    state = {"sessions": [{"session_id": "box:r1", "cwd": "/home/s/proj", "pid": 0,
+                           "status": "busy", "slot": 0, "since": 40.0,
+                           "host": "spheron-AI-PC"}]}
+    out = render_status(state, now=100.0, daemon_up=True, width=140)
+    assert "proj @spheron-AI-PC" in out

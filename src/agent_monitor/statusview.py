@@ -103,9 +103,12 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
             ctx = f"[red bold]{pct}%![/red bold]"
         else:
             ctx = f"{pct}%"
+        project = project_name(sess.get("cwd", ""))
+        if sess.get("host"):
+            project += f" @{sess['host']}"
         table.add_row(
             key,
-            escape(project_name(sess.get("cwd", ""))),
+            escape(project),
             f"[{style}]{label}[/{style}]" if style else label,
             "✓" if sess.get("remote") else "",
             escape(model),

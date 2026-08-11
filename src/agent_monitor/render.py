@@ -92,6 +92,8 @@ def overlay_info(sessions: list[Session], notes: dict[int, str] | None = None) -
         if sess.slot is None or not 0 <= sess.slot < NUM_KEY_LEDS:
             continue
         parts = []
+        if sess.host:
+            parts.append(f"@{sess.host}"[:MAX_NAME_LEN])
         if sess.blocked:
             parts.append("LIMIT REACHED")
         if sess.waiting_for:

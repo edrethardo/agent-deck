@@ -358,3 +358,38 @@ async def test_state_file_carries_usage(paths):
     usage = json.loads(state_path.read_text())["usage"]
     assert usage == [{"label": "5h", "percent": 37, "resets_at": "18:50", "stale": False}]
     await _stop(task)
+
+
+async def test_remote_loop_adds_and_drops_remote_sessions(paths):
+    state_path, sock_path = paths
+    probes = {"value": {"box": [{"session_id": "r1", "pid": 3024, "cwd": "/home/s/proj",
+                                 "model": "opus-5", "effort": "high", "context_pct": 12,
+                                 "age": 2.0}]}}
+    daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
+                    time_fn=lambda: 1000.0, pid_alive=lambda pid: True,
+                    remote_fn=lambda: probes["value"], remote_interval=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await asyncio.sleep(0.12)
+    sessions = json.loads(state_path.read_text())["sessions"]
+    assert sessions[0]["host"] == "box"
+    assert sessions[0]["status"] == "busy"
+    probes["value"] = {"box": []}          # window closed on the remote
+    await asyncio.sleep(0.12)
+    assert json.loads(state_path.read_text())["sessions"] == []
+    await _stop(task)
+
+
+async def test_unreachable_host_leaves_sessions_alone(paths):
+    state_path, sock_path = paths
+    probes = {"value": {"box": [{"session_id": "r1", "pid": 1, "cwd": "/p", "age": 2.0}]}}
+    daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
+                    time_fn=lambda: 1000.0, pid_alive=lambda pid: True,
+                    remote_fn=lambda: probes["value"], remote_interval=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await asyncio.sleep(0.12)
+    probes["value"] = {}                   # host unreachable: no result at all
+    await asyncio.sleep(0.12)
+    assert len(json.loads(state_path.read_text())["sessions"]) == 1
+    await _stop(task)

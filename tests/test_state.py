@@ -420,3 +420,74 @@ def test_interrupt_beats_a_pending_peer_wait():
                         9: _ctx()}, now=101.0)
     sender = [s for s in reg.sessions() if s.session_id == "sender"][0]
     assert sender.waiting_for == ""  # you stopped it: green, not "waits for peer"
+
+
+def _rsess(sid="r1", cwd="/home/spheron/proj", age=5.0, **kw):
+    base = dict(pid=3024, session_id=sid, cwd=cwd, name="proj-ab", model="opus-5",
+                effort="high", context_pct=12, question=False, blocked=False,
+                interrupted=False, peer_name="", age=age)
+    base.update(kw)
+    return base
+
+
+def test_remote_session_appears_with_host_and_derived_status():
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    assert reg.sync_remote("box", [_rsess(age=3.0)], now=1000.0) is True
+    (s,) = reg.sessions()
+    assert (s.host, s.slot, s.status, s.pid) == ("box", 0, Status.BUSY, 0)
+    assert (s.model, s.context_pct) == ("opus-5", 12)
+    assert s.session_id.startswith("box:")
+
+
+def test_remote_status_mapping():
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    reg.sync_remote("box", [
+        _rsess(sid="a", cwd="/p/a", age=3.0),                    # writing -> working
+        _rsess(sid="b", cwd="/p/b", age=300.0),                  # quiet, recent -> finished
+        _rsess(sid="c", cwd="/p/c", age=99999.0),                # long idle -> available
+        _rsess(sid="d", cwd="/p/d", age=10.0, question=True),    # asking -> red
+        _rsess(sid="e", cwd="/p/e", age=10.0, blocked=True),     # limit -> red
+        _rsess(sid="f", cwd="/p/f", age=2.0, interrupted=True),  # Esc -> green
+    ], now=1000.0)
+    got = {s.cwd: (s.status, s.finished) for s in reg.sessions()}
+    assert got["/p/a"] == (Status.BUSY, False)
+    assert got["/p/b"] == (Status.AVAILABLE, True)
+    assert got["/p/c"] == (Status.AVAILABLE, False)
+    assert got["/p/d"][0] is Status.WAITING
+    assert got["/p/e"][0] is Status.WAITING
+    assert got["/p/f"] == (Status.AVAILABLE, True)
+
+
+def test_remote_sessions_survive_local_pruning():
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess()], now=1000.0)
+    reg.prune(lambda pid: False)  # no local pid of theirs can ever be alive
+    assert len(reg.sessions()) == 1
+
+
+def test_vanished_remote_session_is_removed_but_only_for_its_host():
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess(sid="a", cwd="/p/a"), _rsess(sid="b", cwd="/p/b")], now=1.0)
+    reg.sync_remote("other", [_rsess(sid="c", cwd="/p/c")], now=1.0)
+    assert reg.sync_remote("box", [_rsess(sid="a", cwd="/p/a")], now=2.0) is True
+    assert sorted(s.cwd for s in reg.sessions()) == ["/p/a", "/p/c"]
+
+
+def test_remote_session_keeps_its_key_across_probes():
+    reg = SessionRegistry()
+    _start(reg, "local", pid=5)                      # local session holds slot 0
+    reg.sync_remote("box", [_rsess(sid="a", cwd="/p/a")], now=1.0)
+    slot = [s for s in reg.sessions() if s.host == "box"][0].slot
+    reg.sync_remote("box", [], now=2.0)              # briefly gone
+    reg.sync_remote("box", [_rsess(sid="a", cwd="/p/a")], now=3.0)
+    assert [s for s in reg.sessions() if s.host == "box"][0].slot == slot
+
+
+def test_unchanged_remote_probe_reports_no_change():
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess(age=3.0)], now=1000.0)
+    assert reg.sync_remote("box", [_rsess(age=4.0)], now=1001.0) is False

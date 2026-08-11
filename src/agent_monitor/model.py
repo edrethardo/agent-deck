@@ -34,6 +34,8 @@ class Session:
     #                         switch or credits before it can continue (red)
     waiting_for: str = ""   # name of a peer session it dispatched work to and
     #                         whose reply is still outstanding (yellow, never green)
+    host: str = ""          # "" = this machine; otherwise the SSH host whose
+    #                         probe reports it (its pid is not ours to check)
 
     def to_dict(self) -> dict:
         return {
@@ -52,6 +54,7 @@ class Session:
             "question": self.question,
             "blocked": self.blocked,
             "waiting_for": self.waiting_for,
+            "host": self.host,
         }
 
     @classmethod
@@ -72,6 +75,7 @@ class Session:
             question=bool(d.get("question", False)),
             blocked=bool(d.get("blocked", False)),
             waiting_for=str(d.get("waiting_for", "")),
+            host=str(d.get("host", "")),
         )
 
 

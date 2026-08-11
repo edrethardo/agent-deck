@@ -101,7 +101,12 @@ class SessionRegistry:
 
     def _remember_slot(self, sess: Session) -> None:
         if sess.slot is not None and sess.cwd:
-            self._last_slot_by_cwd[sess.cwd] = sess.slot
+            self._last_slot_by_cwd[self._slot_key(sess.host, sess.cwd)] = sess.slot
+
+    @staticmethod
+    def _slot_key(host: str, cwd: str) -> str:
+        """Sticky-key identity: same project name on two machines is two keys."""
+        return f"{host}:{cwd}" if host else cwd
 
     def _slot_is_free(self, slot: int) -> bool:
         return 0 <= slot < MAX_SLOTS and all(s.slot != slot for s in self._sessions.values())
@@ -229,8 +234,12 @@ class SessionRegistry:
         return False
 
     def prune(self, pid_alive: Callable[[int], bool]) -> bool:
-        """Remove sessions whose process is dead. True if anything changed."""
-        dead = [sid for sid, s in self._sessions.items() if not pid_alive(s.pid)]
+        """Remove sessions whose process is dead. True if anything changed.
+
+        Remote sessions are exempt: their pid belongs to another machine and
+        would always read as dead here. The probe's own result removes them."""
+        dead = [sid for sid, s in self._sessions.items()
+                if not s.host and not pid_alive(s.pid)]
         for sid in dead:
             sess = self._sessions[sid]
             _LOGGER.info("pruned session %s pid=%s slot=%s (process dead)",
@@ -239,6 +248,61 @@ class SessionRegistry:
             del self._sessions[sid]
         promoted = self._promote_overflow()
         return bool(dead) or promoted
+
+    REMOTE_BUSY_S = 60.0  # a remote transcript written this recently = working
+
+    def sync_remote(self, host: str, entries: list[dict], now: float) -> bool:
+        """Adopt one host's probe result: upsert its sessions, drop vanished ones.
+
+        Remote sessions have no hooks — their status comes entirely from what
+        the probe read out of the transcript (see `context.read_context`)."""
+        changed = False
+        seen = set()
+        for entry in entries:
+            sid = f"{host}:{entry.get('session_id') or entry.get('pid')}"
+            seen.add(sid)
+            cwd = str(entry.get("cwd") or "")
+            age = float(entry.get("age", 1e9))
+            if entry.get("blocked") or entry.get("question"):
+                status, finished = Status.WAITING, False
+            elif entry.get("interrupted"):
+                status, finished = Status.AVAILABLE, True
+            elif age < self.REMOTE_BUSY_S:
+                status, finished = Status.BUSY, False
+            else:
+                status, finished = Status.AVAILABLE, age < GREEN_HOLD_S
+            sess = self._sessions.get(sid)
+            if sess is None:
+                key = self._slot_key(host, cwd)
+                preferred = self._last_slot_by_cwd.get(key)
+                if preferred is not None and self._slot_is_free(preferred):
+                    slot = preferred
+                    self._last_slot_by_cwd.pop(key, None)
+                else:
+                    slot = self._claim_slot_for_real()
+                _LOGGER.info("remote session %s on %s slot=%s", sid[:24], host, slot)
+                sess = Session(session_id=sid, cwd=cwd, pid=0, status=status,
+                               slot=slot, since=now, host=host)
+                self._sessions[sid] = sess
+                changed = True
+            new = (status, finished, str(entry.get("model") or ""),
+                   str(entry.get("effort") or ""), entry.get("context_pct"),
+                   bool(entry.get("question")), bool(entry.get("blocked")))
+            old = (sess.status, sess.finished, sess.model, sess.effort,
+                   sess.context_pct, sess.question, sess.blocked)
+            if new != old:
+                if sess.status is not status:
+                    sess.since = now
+                (sess.status, sess.finished, sess.model, sess.effort,
+                 sess.context_pct, sess.question, sess.blocked) = new
+                changed = True
+            sess.cwd = sess.cwd or cwd
+        for sid in [s for s, sess in self._sessions.items()
+                    if sess.host == host and s not in seen]:
+            self._remember_slot(self._sessions[sid])
+            del self._sessions[sid]
+            changed = True
+        return self._promote_overflow() or changed
 
     def _claim_slot_for_real(self) -> int | None:
         """Free slot, or evict the newest scanned (UNKNOWN) session to overflow."""

@@ -180,3 +180,10 @@ def test_overlay_explains_blocked_and_peer_wait():
     info = overlay_info([a, b])
     assert info[0].startswith("LIMIT REACHED")
     assert info[1].startswith("waits: unternehmen-9e")
+
+
+def test_remote_session_overlay_names_its_host():
+    sess = _sess(0)
+    sess.host = "spheron-AI-PC"
+    sess.model = "opus-5"
+    assert overlay_info([sess])[0].startswith("@spheron-AI-PC")

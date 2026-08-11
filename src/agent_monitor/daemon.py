@@ -47,6 +47,8 @@ class Daemon:
         ctx_fn: Callable[[int], ContextInfo | None] | None = None,
         usage_fn: Callable[[], list[UsageLimit]] | None = None,
         ctx_interval: float = 10.0,
+        remote_fn: Callable[[], dict[str, list[dict]]] | None = None,
+        remote_interval: float = 30.0,
         # The firmware keeps a key's overlay up for 3 s after a press, which is the
         # whole window a note has to be read in.
         note_seconds: float = 3.0,
@@ -65,6 +67,8 @@ class Daemon:
         self._ctx_fn = ctx_fn
         self._usage_fn = usage_fn
         self._ctx_interval = ctx_interval
+        self._remote_fn = remote_fn
+        self._remote_interval = remote_interval
         self._usage: list[UsageLimit] = []
         self._note_seconds = note_seconds
         self._notes: dict[int, str] = {}
@@ -163,6 +167,8 @@ class Daemon:
             tasks.append(asyncio.create_task(self._rc_loop()))
         if self._ctx_fn is not None or self._usage_fn is not None:
             tasks.append(asyncio.create_task(self._ctx_loop()))
+        if self._remote_fn is not None:
+            tasks.append(asyncio.create_task(self._remote_loop()))
         for task in tasks:
             task.add_done_callback(_log_if_died)
         self.ready.set()
@@ -305,6 +311,22 @@ class Daemon:
             except Exception:
                 _LOGGER.exception("context tick failed")
             await asyncio.sleep(self._ctx_interval)
+
+    async def _remote_loop(self) -> None:
+        # Sessions on other machines (VS Code Remote-SSH). Only hosts that
+        # answered are synced: an unreachable host keeps its last known keys
+        # instead of having them blink out.
+        while True:
+            try:
+                results = await asyncio.to_thread(self._remote_fn)
+                changed = False
+                for host, entries in (results or {}).items():
+                    changed |= self._registry.sync_remote(host, entries, self._time_fn())
+                if changed:
+                    await self._refresh()
+            except Exception:
+                _LOGGER.exception("remote probe tick failed")
+            await asyncio.sleep(self._remote_interval)
 
     async def _rc_loop(self) -> None:
         # Own fast cadence: remote-control toggles should show within seconds,
