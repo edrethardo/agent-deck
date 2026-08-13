@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 
-from .focus import focus_window
+from .focus import ensure_display, focus_window
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,6 +52,8 @@ def _palette(command_text: str, *, run=subprocess.run, pause=time.sleep) -> bool
     """Open the VS Code command palette in the focused window, run a command."""
     if shutil.which("xdotool") is None:
         _LOGGER.warning("xdotool not installed — pad menu actions need it")
+        return False
+    if not ensure_display(run=run):
         return False
     try:
         _xdo(["key", "--clearmodifiers", "ctrl+shift+p"], run=run)

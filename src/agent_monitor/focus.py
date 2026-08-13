@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import glob
 import logging
+import os
 import re
 import subprocess
 import time
@@ -24,6 +26,47 @@ _DECORATION = re.compile(r"\s*[(\[][^)\]]*[)\]]\s*$")
 # window while wmctrl still exits 0 — only the active window tells the truth.
 _POLL_ATTEMPTS = 12
 _POLL_SECONDS = 0.05
+
+
+X11_SOCKET_DIR = "/tmp/.X11-unix"
+_XAUTH_CANDIDATES = ("/run/user/{uid}/gdm/Xauthority", "{home}/.Xauthority")
+
+
+def ensure_display(run=subprocess.run) -> bool:
+    """Make sure DISPLAY (and XAUTHORITY) are set for wmctrl/xdotool.
+
+    A user service enabled at boot starts BEFORE the graphical session
+    publishes DISPLAY into the systemd user environment, so the daemon can
+    end up with no display at all — wmctrl then lists nothing and every
+    focus silently reports "no window". Recovering here means the actions
+    survive that, and an X restart, without needing a daemon restart.
+    """
+    if os.environ.get("DISPLAY"):
+        return True
+    try:
+        out = run(["systemctl", "--user", "show-environment"],
+                  capture_output=True, text=True, timeout=5).stdout or ""
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    values = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    for key in ("DISPLAY", "XAUTHORITY"):
+        if values.get(key):
+            os.environ[key] = values[key]
+    if not os.environ.get("DISPLAY"):
+        # last resort: whatever X socket actually exists
+        socks = sorted(glob.glob(f"{X11_SOCKET_DIR}/X*"))
+        if not socks:
+            _LOGGER.warning("no X display found — desktop actions need a graphical session")
+            return False
+        os.environ["DISPLAY"] = ":" + os.path.basename(socks[0])[1:]
+    if not os.environ.get("XAUTHORITY"):
+        for cand in _XAUTH_CANDIDATES:
+            path = cand.format(uid=os.getuid(), home=os.path.expanduser("~"))
+            if os.path.exists(path):
+                os.environ["XAUTHORITY"] = path
+                break
+    _LOGGER.info("recovered X display %s for desktop actions", os.environ["DISPLAY"])
+    return True
 
 
 def _titled_for(name: str) -> re.Pattern[str]:
@@ -84,6 +127,8 @@ def focus_window(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     """Raise the window belonging to this session, preferring its VS Code window."""
     name = project_name(cwd)
     if not name:
+        return False
+    if not ensure_display(run=run):
         return False
     try:
         out = run(["wmctrl", "-l"], capture_output=True, text=True, timeout=2).stdout

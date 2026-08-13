@@ -1,5 +1,7 @@
+import os
 from types import SimpleNamespace
 
+from agent_monitor import focus
 from agent_monitor.focus import focus_window
 
 WMCTRL_L = """0x04000003  0 host lead_extractor - Visual Studio Code
@@ -147,3 +149,48 @@ def test_focus_matches_a_path_style_terminal_title():
     calls = []
     assert _focus("/home/aaron/code/game", _fake_run(calls, titles)) is True
     assert _raised(calls) == ["0x05000001"]
+
+
+def test_ensure_display_keeps_an_existing_display(monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":1")
+    called = []
+    assert focus.ensure_display(run=lambda *a, **k: called.append(a)) is True
+    assert called == []  # no need to ask anyone
+
+
+def test_ensure_display_recovers_from_systemd_environment(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("XAUTHORITY", raising=False)
+
+    def run(cmd, **kw):
+        assert cmd[:2] == ["systemctl", "--user"]
+        return SimpleNamespace(
+            stdout="LANG=de_DE.UTF-8\nDISPLAY=:1\nXAUTHORITY=/run/user/1000/gdm/Xauthority\n",
+            returncode=0)
+
+    assert focus.ensure_display(run=run) is True
+    assert os.environ["DISPLAY"] == ":1"
+    assert os.environ["XAUTHORITY"] == "/run/user/1000/gdm/Xauthority"
+
+
+def test_ensure_display_falls_back_to_the_x_socket(monkeypatch, tmp_path):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    sock_dir = tmp_path / ".X11-unix"
+    sock_dir.mkdir()
+    (sock_dir / "X1").touch()
+    monkeypatch.setattr(focus, "X11_SOCKET_DIR", str(sock_dir))
+    assert focus.ensure_display(run=lambda *a, **k: SimpleNamespace(stdout="", returncode=1)) is True
+    assert os.environ["DISPLAY"] == ":1"
+
+
+def test_ensure_display_reports_failure_when_there_is_no_x(monkeypatch, tmp_path):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(focus, "X11_SOCKET_DIR", str(tmp_path / "nope"))
+    assert focus.ensure_display(run=lambda *a, **k: SimpleNamespace(stdout="", returncode=1)) is False
+
+
+def test_focus_window_gives_up_without_a_display(monkeypatch):
+    monkeypatch.setattr(focus, "ensure_display", lambda **kw: False)
+    calls = []
+    assert focus.focus_window("/proj/a", run=lambda *a, **k: calls.append(a)) is False
+    assert calls == []  # never even runs wmctrl
