@@ -138,7 +138,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 - **A key never changes from white although the session is active** — that session started before the hooks existed. Reload its VS Code window (`Ctrl+Shift+P` → *Developer: Reload Window*); the conversation is kept, tracking starts immediately.
 - **`pad firmware mismatch` in `journalctl --user -u agent-monitor`** — reflash OTA and restart the daemon (see version coupling above).
 - **A menu action shows `locked` / `failed` / `no window`** — that is the daemon's honest result on the key's overlay: `locked` = unlock the PC (the injection cannot reach VS Code through a screen locker), `no window` = no window matching that project, `failed` = see `journalctl --user -u agent-monitor` for the reason.
-- **Double-press does nothing** — is `wmctrl` installed? Does `systemctl --user show-environment` contain `DISPLAY`? Check the journal for `focus request` lines.
+- **Double-press or a menu action reports `no window` although the window is right there** — the daemon had no X display: a user service enabled at boot starts before the graphical session publishes `DISPLAY`. It now recovers the display by itself at call time (and after an X restart); if it still fails, check `wmctrl` is installed and look for `recovered X display` / `no X display found` in `journalctl --user -u agent-monitor`.
 - **A remote (Remote-SSH) session doesn't appear** — the daemon only probes hosts with an open Remote-SSH window, and only over key-based SSH: check `ssh -o BatchMode=yes <host> true` works without a prompt, that `python3` exists there, and look for `remote probe` lines in `journalctl --user -u agent-monitor`. Remote-control state is detected on the remote host itself, so those keys go blue like any other.
 - **More than 16 sessions** — extras get no key (overflow) but stay visible in the CLI; real sessions evict blue scanned entries when keys run short.
 - **A knob does nothing, or turns the wrong way** — encoder wiring varies between builds. Left knob lives on GPIO25/26 (button 34), right knob on GPIO32/33 (button 27) in `firmware/deepdeck.yaml`: swap the two pin *pairs* if your knobs are exchanged, or swap `pin_a`/`pin_b` within one knob if its direction is inverted; reflash OTA.
@@ -149,7 +149,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ## Development
 
 ```bash
-uv run pytest -q                                # 235 tests
+uv run pytest -q                                # 240 tests
 uvx esphome config firmware/deepdeck.yaml       # firmware schema check
 uvx esphome compile firmware/deepdeck.yaml      # full build
 ```
