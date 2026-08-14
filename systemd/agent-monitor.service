@@ -1,7 +1,8 @@
 [Unit]
 Description=Agent Monitor — Claude session status on DeepDeck
+# graphical-session.target is passive (RefuseManualStart=yes): order
+# after it if it is in the same transaction, but never pull it in.
 After=network-online.target graphical-session.target
-Wants=graphical-session.target
 
 [Service]
 ExecStart=%h/.local/bin/agent-monitor daemon
@@ -9,4 +10,4 @@ Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=default.target graphical-session.target
+WantedBy=default.target
