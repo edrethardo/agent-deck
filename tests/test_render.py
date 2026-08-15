@@ -187,3 +187,11 @@ def test_remote_session_overlay_names_its_host():
     sess.host = "spheron-AI-PC"
     sess.model = "opus-5"
     assert overlay_info([sess])[0].startswith("@spheron-AI-PC")
+
+
+def test_hidden_session_occupies_no_key():
+    sess = _sess(None)          # hiding sets slot to None
+    sess.hidden_at = 100.0
+    assert led_colors([sess]) == [0] * (NUM_KEY_LEDS * 3)
+    assert key_names([sess]) == [""] * NUM_KEY_LEDS
+    assert overlay_info([sess]) == [""] * NUM_KEY_LEDS
