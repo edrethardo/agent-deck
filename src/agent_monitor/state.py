@@ -81,7 +81,7 @@ class SessionRegistry:
         sess.pid = pid if pid > 1 else sess.pid
         # A hook event IS activity, so a hidden session earns its key back —
         # even for events that change nothing else (e.g. a second Stop).
-        woke = self.unhide(sess, now) if sess.hidden_at else False
+        woke = self.unhide(sess) if sess.hidden_at else False
         new = status_for_event(event, message, sess.status)
         if new is None:
             return woke
@@ -163,7 +163,7 @@ class SessionRegistry:
                 return True
         return False
 
-    def unhide(self, sess: Session, now: float) -> bool:
+    def unhide(self, sess: Session) -> bool:
         """Put a hidden session back on the board. True if anything changed."""
         if not sess.hidden_at:
             return False
@@ -209,7 +209,7 @@ class SessionRegistry:
             if info is None:
                 continue
             if sess.hidden_at and info.activity > sess.hidden_at:
-                self.unhide(sess, now or info.activity)
+                self.unhide(sess)
                 changed = True
             new = (info.percent, info.model, info.effort, info.question, info.blocked)
             if (sess.context_pct, sess.model, sess.effort, sess.question, sess.blocked) != new:
@@ -336,7 +336,7 @@ class SessionRegistry:
                 changed = True
             sess.cwd = sess.cwd or cwd
             if sess.hidden_at and (now - age) > sess.hidden_at:
-                self.unhide(sess, now)
+                self.unhide(sess)
                 changed = True
             if not sess.rc_manual:
                 # the probe read this off the remote's own sockets; a pad

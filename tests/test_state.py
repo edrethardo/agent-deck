@@ -539,7 +539,7 @@ def test_hidden_session_reclaims_its_old_key_when_it_is_still_free():
     _start(reg, "a", t=1.0, pid=5)      # slot 0
     _start(reg, "b", t=1.0, pid=6)      # slot 1
     reg.hide_slot(0, now=100.0)
-    reg.unhide(reg.by_id("a"), now=200.0)
+    reg.unhide(reg.by_id("a"))
     assert reg.by_id("a").slot == 0
 
 
@@ -549,7 +549,7 @@ def test_hiding_really_frees_the_key_for_a_new_session():
     reg.hide_slot(0, now=100.0)
     _start(reg, "c", t=2.0, pid=7)      # the freed key is genuinely available
     assert reg.by_id("c").slot == 0
-    reg.unhide(reg.by_id("a"), now=200.0)
+    reg.unhide(reg.by_id("a"))
     assert reg.by_id("a").slot == 1     # best effort: next free key instead
 
 
@@ -560,7 +560,7 @@ def test_unhide_with_no_free_slot_settles_into_ordinary_overflow():
     reg.hide_slot(0, now=100.0)
     _start(reg, "filler", t=2.0, pid=999)  # refills the freed slot
     hidden = reg.by_id("s0")
-    assert reg.unhide(hidden, now=200.0) is True
+    assert reg.unhide(hidden) is True
     assert hidden.slot is None
     assert hidden.hidden_at == 0.0
 
@@ -569,7 +569,7 @@ def test_unhide_on_a_session_that_was_never_hidden_is_a_no_op():
     reg = SessionRegistry()
     _start(reg, "a", pid=5)
     s = reg.by_id("a")
-    assert reg.unhide(s, now=200.0) is False
+    assert reg.unhide(s) is False
     assert s.slot == 0
 
 
