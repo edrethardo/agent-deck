@@ -97,7 +97,8 @@ a spoken result on the overlay, when:
 
 - the session is remote (`local only`) — reaching across SSH to kill a process is
   deliberately out of scope for v1;
-- the pid is not a plausible local process (`failed`).
+- the pid is not a live local process of ours — `pid > 1` and `os.kill(pid, 0)`
+  must both hold (`failed`).
 
 Success reports `ending…`; the session disappears when `SessionEnd` arrives or the
 next prune tick notices the process is gone.
@@ -123,6 +124,9 @@ simply never sends 3 or 4.
 ## Edge cases
 
 - **Hidden session dies** — pruned normally; hiding does not affect liveness.
+- **Hiding a session that is currently working** — it returns within about ten
+  seconds, at its next activity signal. That is the agreed rule working as
+  intended: hide is aimed at idle sessions, not at silencing active ones.
 - **All keys occupied when a hidden session returns** — it takes a free key, else
   it waits in overflow, exactly like any other session.
 - **Hide the session you are looking at** — allowed; the overlay reports `hidden`
