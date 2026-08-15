@@ -108,7 +108,7 @@ Without the config file the daemon runs CLI-only — useful before the hardware 
 | **Double-press** (<400 ms) | Focuses that session's window on your desktop (VS Code windows match best) |
 | **Hold** (≥600 ms) | Pick up the session — the key blinks; **click another key** to move/swap it there; same key or 10 s cancels |
 | **Left knob turn** | Key-LED brightness, 5 % steps (1 % steps below 10 %, down to a barely-glowing 1 % night mode; persists across reboots) — or scrolls the menu while it's open |
-| **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked), **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly) and **compact context** (types `/compact` — the phone app has no manual compact, the deck does). Turn to choose, press to execute; any key or 8 s cancels |
+| **Left knob press** (while a name overlay shows) | Opens the session's context menu: **restart session** (reloads its VS Code window — the conversation survives and comes back hook-tracked), **toggle remote** (types `/remote-control` for you; the key flips blue/white instantly), **compact context** (types `/compact` — the phone app has no manual compact, the deck does), **hide key** (frees the key without touching the session) and **end session** (stops it — needs a second press to confirm). Turn to choose, press to execute; any key or 8 s cancels |
 | **Right knob turn** | Toggles what the notification LEDs show: **usage** (traffic light for the 5-hour limit) or **manual** (your fixed color) |
 | **Right knob press** | Notification-LED settings: first press = brightness, second = color (11 saturated presets incl. off), third closes. Turn to adjust with live preview; values survive reboots; 8 s idle closes too |
 
@@ -119,6 +119,10 @@ All menu actions work by typing into your desktop (wmctrl focus + xdotool palett
 The OLED idles on the account usage screen: `5h` (current session window) and `7d` (weekly) with progress bars and reset times. The daemon prefers the cache Claude Code keeps for its own `/usage` command; because that cache only refreshes on local UI activity (a session driven from the phone never touches it), the daemon falls back to fetching the same endpoint the phone app uses, authenticated with the Claude Code OAuth token already on disk — read-only, throttled to one request per 10 minutes, token sent to api.anthropic.com only. When no usage data is available at all the DeepDeck kraken takes over. Sessions keep their key for their whole lifetime, across daemon restarts and session reloads.
 
 Session details (model, effort, context %) come from Claude Code's own transcripts — read-only, refreshed every 10 s. The context window size is inferred (200k, or 1m when the model tag, the settings default, or an observed >200k turn proves it), so a fresh low-context session on a 1m model briefly shows a conservative (too high) percentage.
+
+**Clearing the board.** `hide key` takes a session off the deck without touching it — the key frees up immediately, the session keeps running, and it stays fully listed in `agent-monitor status` (marked `hidden`), because the CLI is the complete view and the deck is the curated one. A hidden session comes back on its **next activity**: a hook event, a write to its transcript, or — for remote sessions — its next probe, whichever comes first. It reclaims its old key if that key is still free, otherwise the next free one; hiding genuinely releases the key rather than reserving it. One consequence worth knowing: a session that is *blocked* writes nothing, so hiding a red key keeps it hidden until something moves it.
+
+`end session` is the destructive twin: it stops the session's process (SIGTERM), so the key frees itself the normal way. It asks for a second press first, refuses remote sessions (`local only`) since their process lives on another machine, and re-checks `/proc` before signalling so a recycled pid can never take down an unrelated program.
 
 A session that handed work to **another session** (`SendMessage`) shows yellow with `waits: <peer>` on its overlay while that peer is still working — the sender is idle, but nothing is finished, so it must not claim green. And a session that stopped on a **usage-limit notice** turns red: it cannot continue until you switch model or add credits, and no hook reports that.
 
@@ -149,7 +153,7 @@ agent-monitor test-pattern     # hardware smoke test (requires daemon stopped)
 ## Development
 
 ```bash
-uv run pytest -q                                # 240 tests
+uv run pytest -q                                # 263 tests
 uvx esphome config firmware/deepdeck.yaml       # firmware schema check
 uvx esphome compile firmware/deepdeck.yaml      # full build
 ```

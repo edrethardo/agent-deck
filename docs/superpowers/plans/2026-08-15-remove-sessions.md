@@ -822,3 +822,19 @@ git add -A
 git commit -m "docs: hide key and end session on the deck"
 git push
 ```
+
+---
+
+## Amendments made during execution
+
+Recorded because the plan was wrong in two places and the reviews caught both:
+
+1. **Task 2 — key reservation was wrong.** The plan's test demanded a hidden session get its old key back even after a new session had claimed it, which forced an implementation that reserved hidden sessions' keys. That defeats the feature: hiding is meant to FREE a key, and reserved-but-invisible keys would push new sessions into overflow. Replaced with two tests encoding best effort: `test_hidden_session_reclaims_its_old_key_when_it_is_still_free` and `test_hiding_really_frees_the_key_for_a_new_session`.
+2. **Task 7 — an assertion that could never pass.** `assert s[4][0] == "local only"` cannot hold for a remote session, because `overlay_info` always prepends the `@host` badge; the real value is `"local only\n@box"`. Changed to `.startswith(...)`, matching the file's existing convention.
+
+Two hardenings were added beyond the plan, both from review findings:
+
+3. **`end_session` verifies its target** (`scan.is_claude_process`): registry pids can be up to 15 s stale, and signalling a recycled pid could have hit an unrelated process. It now re-reads `/proc/<pid>/cmdline` and refuses anything that is not currently a claude process — the `os.kill(pid, 0)` probe became redundant and was dropped.
+4. **The armed confirmation string was one character too wide** for the 128 px panel (26 chars against a 25-char budget), so `"> end session? press again"` became `"> end session? confirm"`.
+
+Two small cleanups: `unhide` lost its unused `now` parameter, and the hide branch lost a redundant `_refresh()` (its `_note` already pushes the freed key).
