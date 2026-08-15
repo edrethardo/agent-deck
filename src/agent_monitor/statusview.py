@@ -95,6 +95,8 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
             label, style = "limit reached", "red bold"
         slot = sess.get("slot")
         key = "—" if slot is None else str(slot + 1)
+        if sess.get("hidden_at"):
+            key = "hidden"
         model = f"{sess.get('model', '')} {sess.get('effort', '')}".strip()
         pct = sess.get("context_pct")
         if pct is None:

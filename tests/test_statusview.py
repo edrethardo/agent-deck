@@ -160,3 +160,12 @@ def test_remote_session_shows_host_with_project():
                            "host": "spheron-AI-PC"}]}
     out = render_status(state, now=100.0, daemon_up=True, width=140)
     assert "proj @spheron-AI-PC" in out
+
+
+def test_hidden_session_is_listed_and_marked():
+    state = {"sessions": [
+        {"session_id": "a", "cwd": "/p/x", "pid": 1, "status": "available",
+         "slot": None, "since": 40.0, "hidden_at": 20.0}]}
+    out = render_status(state, now=100.0, daemon_up=True, width=140)
+    assert "hidden" in out
+    assert "x" in out          # still listed: the CLI is the complete view
