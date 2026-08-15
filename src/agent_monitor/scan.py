@@ -55,6 +55,12 @@ def looks_like_claude(argv: list[str]) -> bool:
     return False
 
 
+def is_claude_process(pid: int) -> bool:
+    """True if `pid` currently IS a claude process — pids get recycled, so
+    anything destructive must confirm the target, not just that it exists."""
+    return looks_like_claude(_cmdline(pid))
+
+
 def claude_ancestor_pid(start_pid: int) -> int:
     """Nearest ancestor of start_pid (inclusive) that looks like claude.
 

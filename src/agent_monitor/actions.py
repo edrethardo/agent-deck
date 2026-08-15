@@ -14,6 +14,7 @@ import subprocess
 import time
 
 from .focus import ensure_display, focus_window
+from .scan import is_claude_process
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -114,12 +115,15 @@ def compact_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
 def end_session(pid: int) -> bool:
     """Stop a local session by signalling its process.
 
-    No window, no typing, no unlocked desktop needed — but only for a live
-    process of ours; the caller refuses remote sessions before getting here."""
+    No window, no typing, no unlocked desktop needed. The pid is re-checked
+    against /proc first: registry pids can be seconds stale, and signalling a
+    recycled pid would hit an unrelated process."""
     if pid <= 1:
         return False
+    if not is_claude_process(pid):
+        _LOGGER.warning("refusing to end pid=%s: not a claude process", pid)
+        return False
     try:
-        os.kill(pid, 0)               # exists and is ours?
         os.kill(pid, signal.SIGTERM)
     except OSError as exc:
         _LOGGER.warning("cannot end session pid=%s: %s", pid, exc)

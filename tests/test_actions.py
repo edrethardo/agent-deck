@@ -128,11 +128,12 @@ def test_actions_refuse_when_display_locked(monkeypatch):
 
 
 def test_end_session_signals_the_pid(monkeypatch):
+    monkeypatch.setattr(actions, "is_claude_process", lambda pid: True)
     sent = []
     monkeypatch.setattr(actions.os, "kill", lambda pid, sig: sent.append((pid, sig)))
     assert actions.end_session(4242) is True
     import signal
-    assert sent == [(4242, 0), (4242, signal.SIGTERM)]   # liveness probe, then stop
+    assert sent == [(4242, signal.SIGTERM)]
 
 
 def test_end_session_refuses_an_implausible_pid():
@@ -141,7 +142,17 @@ def test_end_session_refuses_an_implausible_pid():
 
 
 def test_end_session_reports_a_dead_or_foreign_process(monkeypatch):
+    monkeypatch.setattr(actions, "is_claude_process", lambda pid: True)
+
     def kill(pid, sig):
         raise ProcessLookupError()
     monkeypatch.setattr(actions.os, "kill", kill)
     assert actions.end_session(4242) is False
+
+
+def test_end_session_refuses_a_pid_that_is_not_claude(monkeypatch):
+    monkeypatch.setattr(actions, "is_claude_process", lambda pid: False)
+    killed = []
+    monkeypatch.setattr(actions.os, "kill", lambda pid, sig: killed.append(pid))
+    assert actions.end_session(4242) is False
+    assert killed == []          # a recycled pid must never be signalled
