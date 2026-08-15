@@ -79,12 +79,15 @@ class SessionRegistry:
             # rename the key or shift its per-cwd sticky-slot identity.
             sess.cwd = cwd
         sess.pid = pid if pid > 1 else sess.pid
+        # A hook event IS activity, so a hidden session earns its key back —
+        # even for events that change nothing else (e.g. a second Stop).
+        woke = self.unhide(sess, now) if sess.hidden_at else False
         new = status_for_event(event, message, sess.status)
         if new is None:
-            return False
+            return woke
         finished = event == "Stop"
         if new == sess.status and finished == sess.finished:
-            return False
+            return woke
         sess.status = new
         sess.finished = finished
         sess.since = now

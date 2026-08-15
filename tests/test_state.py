@@ -571,3 +571,23 @@ def test_unhide_on_a_session_that_was_never_hidden_is_a_no_op():
     s = reg.by_id("a")
     assert reg.unhide(s, now=200.0) is False
     assert s.slot == 0
+
+
+def test_any_hook_event_unhides_the_session():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)
+    reg.hide_slot(0, now=100.0)
+    assert reg.by_id("a").slot is None
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 200.0)
+    s = reg.by_id("a")
+    assert (s.hidden_at, s.slot, s.status) == (0.0, 0, Status.BUSY)
+
+
+def test_a_status_neutral_event_still_unhides():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 50.0)   # available+finished
+    reg.hide_slot(0, now=100.0)
+    # a second Stop changes no status at all, but it IS activity
+    assert reg.apply_event("Stop", "a", "/proj/a", 5, None, 200.0) is True
+    assert reg.by_id("a").slot == 0
