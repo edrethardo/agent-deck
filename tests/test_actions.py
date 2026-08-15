@@ -125,3 +125,23 @@ def test_actions_refuse_when_display_locked(monkeypatch):
     assert actions.restart_session("/proj/a", run=_fake_run(calls), pause=_fake_pause([])) is False
     assert actions.toggle_remote_control("/proj/a", run=_fake_run(calls), pause=_fake_pause([])) is False
     assert calls == []  # nothing typed into the lock screen
+
+
+def test_end_session_signals_the_pid(monkeypatch):
+    sent = []
+    monkeypatch.setattr(actions.os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    assert actions.end_session(4242) is True
+    import signal
+    assert sent == [(4242, 0), (4242, signal.SIGTERM)]   # liveness probe, then stop
+
+
+def test_end_session_refuses_an_implausible_pid():
+    assert actions.end_session(0) is False
+    assert actions.end_session(1) is False
+
+
+def test_end_session_reports_a_dead_or_foreign_process(monkeypatch):
+    def kill(pid, sig):
+        raise ProcessLookupError()
+    monkeypatch.setattr(actions.os, "kill", kill)
+    assert actions.end_session(4242) is False

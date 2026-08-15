@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import time
 
@@ -108,3 +109,20 @@ def toggle_remote_control(cwd: str, *, run=subprocess.run, pause=time.sleep) -> 
 def compact_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     """Manually compact the session's context (the phone app cannot)."""
     return _slash_command(cwd, "/compact", run=run, pause=pause)
+
+
+def end_session(pid: int) -> bool:
+    """Stop a local session by signalling its process.
+
+    No window, no typing, no unlocked desktop needed — but only for a live
+    process of ours; the caller refuses remote sessions before getting here."""
+    if pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)               # exists and is ours?
+        os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        _LOGGER.warning("cannot end session pid=%s: %s", pid, exc)
+        return False
+    _LOGGER.info("sent SIGTERM to session pid=%s", pid)
+    return True
