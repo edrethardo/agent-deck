@@ -591,3 +591,29 @@ def test_a_status_neutral_event_still_unhides():
     # a second Stop changes no status at all, but it IS activity
     assert reg.apply_event("Stop", "a", "/proj/a", 5, None, 200.0) is True
     assert reg.by_id("a").slot == 0
+
+
+def test_transcript_activity_newer_than_the_hide_unhides():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.hide_slot(0, now=100.0)
+    # a write from BEFORE the hide must not wake it
+    reg.update_context({5: _ctx(activity=90.0)}, now=105.0)
+    assert reg.by_id("a").slot is None
+    # a write from after it does
+    assert reg.update_context({5: _ctx(activity=110.0)}, now=115.0) is True
+    assert reg.by_id("a").slot == 0
+    assert reg.by_id("a").hidden_at == 0.0
+
+
+def test_remote_probe_activity_unhides():
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess(age=5.0)], now=1000.0)
+    slot = reg.sessions()[0].slot
+    reg.hide_slot(slot, now=1000.0)
+    # age 500 s at now=1400 -> written at 900, before the hide: stays hidden
+    reg.sync_remote("box", [_rsess(age=500.0)], now=1400.0)
+    assert reg.sessions()[0].slot is None
+    # age 5 s at now=1500 -> written at 1495, after the hide: comes back
+    reg.sync_remote("box", [_rsess(age=5.0)], now=1500.0)
+    assert reg.sessions()[0].slot == slot

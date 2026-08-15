@@ -208,6 +208,9 @@ class SessionRegistry:
             info = infos.get(sess.pid)
             if info is None:
                 continue
+            if sess.hidden_at and info.activity > sess.hidden_at:
+                self.unhide(sess, now or info.activity)
+                changed = True
             new = (info.percent, info.model, info.effort, info.question, info.blocked)
             if (sess.context_pct, sess.model, sess.effort, sess.question, sess.blocked) != new:
                 (sess.context_pct, sess.model, sess.effort,
@@ -332,6 +335,9 @@ class SessionRegistry:
                  sess.context_pct, sess.question, sess.blocked) = new
                 changed = True
             sess.cwd = sess.cwd or cwd
+            if sess.hidden_at and (now - age) > sess.hidden_at:
+                self.unhide(sess, now)
+                changed = True
             if not sess.rc_manual:
                 # the probe read this off the remote's own sockets; a pad
                 # toggle still wins, exactly as for local sessions
