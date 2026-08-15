@@ -81,3 +81,12 @@ def test_session_question_roundtrip():
     sess.question = True
     assert Session.from_dict(sess.to_dict()).question is True
     assert Session.from_dict({"session_id": "b", "status": "busy"}).question is False
+
+
+def test_session_hidden_at_defaults_and_roundtrips():
+    sess = Session("a", "/p", 1, Status.AVAILABLE, 0, 1.0)
+    assert sess.hidden_at == 0.0
+
+    sess.hidden_at = 1234.5
+    assert Session.from_dict(sess.to_dict()).hidden_at == 1234.5
+    assert Session.from_dict({"session_id": "b", "status": "busy"}).hidden_at == 0.0

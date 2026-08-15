@@ -36,6 +36,8 @@ class Session:
     #                         whose reply is still outstanding (yellow, never green)
     host: str = ""          # "" = this machine; otherwise the SSH host whose
     #                         probe reports it (its pid is not ours to check)
+    hidden_at: float = 0.0  # when the user took this session off the deck; it
+    #                         keeps running and returns on its next activity
 
     def to_dict(self) -> dict:
         return {
@@ -55,6 +57,7 @@ class Session:
             "blocked": self.blocked,
             "waiting_for": self.waiting_for,
             "host": self.host,
+            "hidden_at": self.hidden_at,
         }
 
     @classmethod
@@ -76,6 +79,7 @@ class Session:
             blocked=bool(d.get("blocked", False)),
             waiting_for=str(d.get("waiting_for", "")),
             host=str(d.get("host", "")),
+            hidden_at=float(d.get("hidden_at", 0.0)),
         )
 
 
