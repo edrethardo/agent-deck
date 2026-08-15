@@ -1,5 +1,5 @@
 from agent_monitor.model import Status
-from agent_monitor.state import SessionRegistry
+from agent_monitor.state import MAX_SLOTS, SessionRegistry
 
 
 def _start(reg, sid, t=1.0, pid=100):
@@ -501,3 +501,73 @@ def test_remote_session_adopts_its_rc_flag_but_a_pad_pin_wins():
     reg.set_remote_manual(s.slot, False)          # toggled off from the pad menu
     reg.sync_remote("box", [_rsess(remote=True)], now=2.0)
     assert s.remote is False                      # the known state is not overwritten
+
+
+def test_hide_slot_frees_the_key_but_keeps_the_session():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    assert reg.hide_slot(0, now=100.0) is True
+    (s,) = reg.sessions()
+    assert s.slot is None
+    assert s.hidden_at == 100.0
+    assert s.session_id == "a"          # still tracked, still alive
+
+
+def test_hide_slot_on_an_empty_key_is_a_no_op():
+    reg = SessionRegistry()
+    assert reg.hide_slot(3, now=100.0) is False
+
+
+def test_hidden_session_is_not_promoted_into_a_free_key():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.hide_slot(0, now=100.0)
+    reg._promote_overflow()
+    assert reg.sessions()[0].slot is None
+
+
+def test_a_hidden_session_is_still_pruned_when_its_process_dies():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.hide_slot(0, now=100.0)
+    assert reg.prune(lambda pid: False) is True
+    assert reg.sessions() == []
+
+
+def test_hidden_session_reclaims_its_old_key_when_it_is_still_free():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)      # slot 0
+    _start(reg, "b", t=1.0, pid=6)      # slot 1
+    reg.hide_slot(0, now=100.0)
+    reg.unhide(reg.by_id("a"), now=200.0)
+    assert reg.by_id("a").slot == 0
+
+
+def test_hiding_really_frees_the_key_for_a_new_session():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)      # slot 0
+    reg.hide_slot(0, now=100.0)
+    _start(reg, "c", t=2.0, pid=7)      # the freed key is genuinely available
+    assert reg.by_id("c").slot == 0
+    reg.unhide(reg.by_id("a"), now=200.0)
+    assert reg.by_id("a").slot == 1     # best effort: next free key instead
+
+
+def test_unhide_with_no_free_slot_settles_into_ordinary_overflow():
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=1.0, pid=100 + i)
+    reg.hide_slot(0, now=100.0)
+    _start(reg, "filler", t=2.0, pid=999)  # refills the freed slot
+    hidden = reg.by_id("s0")
+    assert reg.unhide(hidden, now=200.0) is True
+    assert hidden.slot is None
+    assert hidden.hidden_at == 0.0
+
+
+def test_unhide_on_a_session_that_was_never_hidden_is_a_no_op():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    s = reg.by_id("a")
+    assert reg.unhide(s, now=200.0) is False
+    assert s.slot == 0

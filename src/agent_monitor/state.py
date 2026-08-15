@@ -146,6 +146,38 @@ class SessionRegistry:
             sess_b.slot = a
         return True
 
+    def hide_slot(self, slot: int, now: float) -> bool:
+        """Take the session on `slot` off the deck without touching it.
+
+        The session keeps running and stays tracked; it simply loses its key
+        until its next sign of activity (see `unhide`)."""
+        for sess in self._sessions.values():
+            if sess.slot == slot:
+                self._remember_slot(sess)   # prefer this key when it returns
+                sess.slot = None
+                sess.hidden_at = now
+                _LOGGER.info("hid session %s (was slot %s)", sess.session_id[:8], slot)
+                return True
+        return False
+
+    def unhide(self, sess: Session, now: float) -> bool:
+        """Put a hidden session back on the board. True if anything changed."""
+        if not sess.hidden_at:
+            return False
+        sess.hidden_at = 0.0
+        key = self._slot_key(sess.host, sess.cwd)
+        preferred = self._last_slot_by_cwd.get(key)
+        if preferred is not None and self._slot_is_free(preferred):
+            sess.slot = preferred
+            self._last_slot_by_cwd.pop(key, None)
+        else:
+            # Miss: the remembered entry deliberately stays, matching the
+            # pop-only-on-hit convention used elsewhere in this file. It now
+            # serves a FUTURE session of this project, not this one.
+            sess.slot = self._claim_slot_for_real()
+        _LOGGER.info("unhid session %s -> slot %s", sess.session_id[:8], sess.slot)
+        return True
+
     def update_remote_flags(self, has_rc: Callable[[int], bool]) -> bool:
         """Refresh each session's remote-control flag. True if any changed.
 
@@ -334,7 +366,7 @@ class SessionRegistry:
     def _promote_overflow(self) -> bool:
         changed = False
         for sess in sorted(self._sessions.values(), key=lambda s: s.since):
-            if sess.slot is None:
+            if sess.slot is None and not sess.hidden_at:  # hidden ones stay off
                 slot = self._free_slot()
                 if slot is None:
                     break
