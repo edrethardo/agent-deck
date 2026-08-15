@@ -393,3 +393,67 @@ async def test_unreachable_host_leaves_sessions_alone(paths):
     await asyncio.sleep(0.12)
     assert len(json.loads(state_path.read_text())["sessions"]) == 1
     await _stop(task)
+
+
+async def test_menu_hide_takes_the_key_and_reports_it(paths):
+    state_path, sock_path = paths
+    pad = FakePad()
+    daemon = Daemon(SessionRegistry(), pad, state_path, sock_path,
+                    time_fn=lambda: 100.0, pid_alive=lambda pid: True,
+                    note_seconds=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event())            # session on slot 0
+    daemon.action_slot(0, 3)
+    await asyncio.sleep(0.05)
+    sess = json.loads(state_path.read_text())["sessions"][0]
+    assert sess["slot"] is None and sess["hidden_at"] == 100.0
+    assert any(s[4][0] == "hidden" for s in pad.shows)
+    await _stop(task)
+
+
+async def test_menu_end_signals_and_reports(paths, monkeypatch):
+    from agent_monitor import actions
+
+    state_path, sock_path = paths
+    pad = FakePad()
+    ended = []
+    monkeypatch.setattr(actions, "display_locked", lambda: False)
+    monkeypatch.setattr(actions, "end_session", lambda pid: ended.append(pid) or True)
+    daemon = Daemon(SessionRegistry(), pad, state_path, sock_path,
+                    time_fn=lambda: 100.0, pid_alive=lambda pid: True,
+                    note_seconds=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event(pid=4242))
+    daemon.action_slot(0, 4)
+    await asyncio.sleep(0.05)
+    assert ended == [4242]
+    assert any(s[4][0].startswith("ending") for s in pad.shows)
+    await _stop(task)
+
+
+async def test_menu_end_refuses_a_remote_session(paths, monkeypatch):
+    from agent_monitor import actions
+
+    state_path, sock_path = paths
+    pad = FakePad()
+    ended = []
+    monkeypatch.setattr(actions, "display_locked", lambda: False)
+    monkeypatch.setattr(actions, "end_session", lambda pid: ended.append(pid) or True)
+    registry = SessionRegistry()
+    registry.sync_remote("box", [{"session_id": "r1", "pid": 3024, "cwd": "/p",
+                                  "age": 5.0}], now=100.0)
+    daemon = Daemon(registry, pad, state_path, sock_path,
+                    time_fn=lambda: 100.0, pid_alive=lambda pid: True,
+                    note_seconds=0.05)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    daemon.action_slot(0, 4)
+    await asyncio.sleep(0.05)
+    assert ended == []
+    # startswith, not ==: overlay_info (render.py) prepends the note to the
+    # session's persistent overlay text, and a remote session always carries
+    # an "@host" badge line — so the full overlay is "local only\n@box".
+    assert any(s[4][0].startswith("local only") for s in pad.shows)
+    await _stop(task)

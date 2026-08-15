@@ -119,6 +119,19 @@ class Daemon:
 
     async def _run_action(self, sess, option: int) -> None:
         from . import actions
+        if option == 3:                       # hide: display-only, never blocked
+            slot = sess.slot
+            if self._registry.hide_slot(slot, self._time_fn()):
+                await self._note(slot, "hidden")   # its refresh pushes the freed key too
+            return
+        if option == 4:                       # end: stop the process itself
+            if sess.host:
+                _LOGGER.info("refusing to end remote session on %s", sess.host)
+                await self._note(sess.slot, "local only")
+                return
+            ok = await asyncio.to_thread(actions.end_session, sess.pid)
+            await self._note(sess.slot, "ending…" if ok else "failed")
+            return
         fn = {0: actions.restart_session,
               1: actions.toggle_remote_control,
               2: actions.compact_session}.get(option)
