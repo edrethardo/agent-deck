@@ -102,7 +102,7 @@ class SessionRegistry:
             # It is doing something or needs the user: with forward mode on it
             # may now displace the idlest session (a no-op when a key is free
             # anyway, and when forward mode is off).
-            sess.slot = self._claim_slot_for_real()
+            sess.slot = self._claim_slot_for_real(active=True)
         return True
 
     def decay_finished(self, now: float, hold: float = GREEN_HOLD_S) -> bool:
@@ -190,6 +190,9 @@ class SessionRegistry:
             # Miss: the remembered entry deliberately stays, matching the
             # pop-only-on-hit convention used elsewhere in this file. It now
             # serves a FUTURE session of this project, not this one.
+            # No displacement here: waking up is not the same as needing a key.
+            # If the event that woke it also makes it BUSY/WAITING, apply_event's
+            # tail claims one properly, displacing if forward mode allows.
             sess.slot = self._claim_slot_for_real()
         _LOGGER.info("unhid session %s -> slot %s", sess.session_id[:8], sess.slot)
         return True
@@ -366,14 +369,15 @@ class SessionRegistry:
             changed = True
         return self._promote_overflow() or changed
 
-    def _claim_slot_for_real(self, active: bool = True) -> int | None:
+    def _claim_slot_for_real(self, active: bool = False) -> int | None:
         """Free slot, or evict the newest scanned (UNKNOWN) session to overflow.
 
         With forward mode on, a full board additionally yields the key of the
         session idle longest — see `_displace_longest_idle`. `active` gates
-        only that last resort: it must be False for a session that is not
-        itself BUSY/WAITING, so a merely-created or idle session cannot use
-        forward mode to jump the overflow queue."""
+        only that last resort and defaults to False (fail safe): a caller
+        must opt in explicitly, and only on behalf of a session that is
+        itself BUSY/WAITING — waking up or merely being created must never
+        jump the overflow queue."""
         slot = self._free_slot()
         if slot is not None:
             return slot

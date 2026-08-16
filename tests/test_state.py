@@ -750,3 +750,29 @@ def test_an_exact_tie_is_broken_deterministically():
     _start(reg, "new", t=5.0, pid=999)
     reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 5.0)
     assert reg.by_id(f"s{MAX_SLOTS - 1}").slot is None   # highest slot yields
+
+
+def test_waking_from_hidden_while_idle_never_displaces_anyone():
+    """Unhiding is not 'needing a key': a status-neutral event brings a hidden
+    session back, but it must wait for a free key like any idle session."""
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    reg.hide_slot(0, now=50.0)                     # frees key 0...
+    _start(reg, "filler", t=60.0, pid=900)         # ...which this idle session takes
+    assert reg.by_id("filler").slot == 0
+    # a second Stop wakes the hidden session without making it active
+    reg.apply_event("Stop", "s0", "/proj/s0", 100, None, 70.0)
+    reg.apply_event("Stop", "s0", "/proj/s0", 100, None, 71.0)
+    assert reg.by_id("s0").hidden_at == 0.0        # it did wake up
+    assert reg.by_id("s0").slot is None            # but took nobody's key
+    assert reg.by_id("filler").slot == 0           # the idle occupant is untouched
+
+
+def test_a_woken_session_that_starts_working_does_displace():
+    """The other half: once it is genuinely working, it earns a key."""
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    reg.hide_slot(0, now=50.0)
+    _start(reg, "filler", t=60.0, pid=900)
+    reg.apply_event("UserPromptSubmit", "s0", "/proj/s0", 100, None, 70.0)
+    assert reg.by_id("s0").slot is not None        # working: displaced the idlest
