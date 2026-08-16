@@ -9,10 +9,12 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import time
 
 from .focus import ensure_display, focus_window
+from .scan import is_claude_process
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,3 +110,23 @@ def toggle_remote_control(cwd: str, *, run=subprocess.run, pause=time.sleep) -> 
 def compact_session(cwd: str, *, run=subprocess.run, pause=time.sleep) -> bool:
     """Manually compact the session's context (the phone app cannot)."""
     return _slash_command(cwd, "/compact", run=run, pause=pause)
+
+
+def end_session(pid: int) -> bool:
+    """Stop a local session by signalling its process.
+
+    No window, no typing, no unlocked desktop needed. The pid is re-checked
+    against /proc first: registry pids can be seconds stale, and signalling a
+    recycled pid would hit an unrelated process."""
+    if pid <= 1:
+        return False
+    if not is_claude_process(pid):
+        _LOGGER.warning("refusing to end pid=%s: not a claude process", pid)
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        _LOGGER.warning("cannot end session pid=%s: %s", pid, exc)
+        return False
+    _LOGGER.info("sent SIGTERM to session pid=%s", pid)
+    return True

@@ -79,12 +79,15 @@ class SessionRegistry:
             # rename the key or shift its per-cwd sticky-slot identity.
             sess.cwd = cwd
         sess.pid = pid if pid > 1 else sess.pid
+        # A hook event IS activity, so a hidden session earns its key back —
+        # even for events that change nothing else (e.g. a second Stop).
+        woke = self.unhide(sess) if sess.hidden_at else False
         new = status_for_event(event, message, sess.status)
         if new is None:
-            return False
+            return woke
         finished = event == "Stop"
         if new == sess.status and finished == sess.finished:
-            return False
+            return woke
         sess.status = new
         sess.finished = finished
         sess.since = now
@@ -146,6 +149,39 @@ class SessionRegistry:
             sess_b.slot = a
         return True
 
+    def hide_slot(self, slot: int, now: float) -> bool:
+        """Take the session on `slot` off the deck without touching it.
+
+        The session keeps running and stays tracked; it simply loses its key
+        until its next sign of activity (see `unhide`)."""
+        for sess in self._sessions.values():
+            if sess.slot == slot:
+                self._remember_slot(sess)   # prefer this key when it returns
+                sess.slot = None
+                sess.hidden_at = now
+                _LOGGER.info("hid session %s (was slot %s)", sess.session_id[:8], slot)
+                self._promote_overflow()   # a waiting session may take the freed key
+                return True
+        return False
+
+    def unhide(self, sess: Session) -> bool:
+        """Put a hidden session back on the board. True if anything changed."""
+        if not sess.hidden_at:
+            return False
+        sess.hidden_at = 0.0
+        key = self._slot_key(sess.host, sess.cwd)
+        preferred = self._last_slot_by_cwd.get(key)
+        if preferred is not None and self._slot_is_free(preferred):
+            sess.slot = preferred
+            self._last_slot_by_cwd.pop(key, None)
+        else:
+            # Miss: the remembered entry deliberately stays, matching the
+            # pop-only-on-hit convention used elsewhere in this file. It now
+            # serves a FUTURE session of this project, not this one.
+            sess.slot = self._claim_slot_for_real()
+        _LOGGER.info("unhid session %s -> slot %s", sess.session_id[:8], sess.slot)
+        return True
+
     def update_remote_flags(self, has_rc: Callable[[int], bool]) -> bool:
         """Refresh each session's remote-control flag. True if any changed.
 
@@ -173,6 +209,9 @@ class SessionRegistry:
             info = infos.get(sess.pid)
             if info is None:
                 continue
+            if sess.hidden_at and info.activity > sess.hidden_at:
+                self.unhide(sess)
+                changed = True
             new = (info.percent, info.model, info.effort, info.question, info.blocked)
             if (sess.context_pct, sess.model, sess.effort, sess.question, sess.blocked) != new:
                 (sess.context_pct, sess.model, sess.effort,
@@ -297,6 +336,9 @@ class SessionRegistry:
                  sess.context_pct, sess.question, sess.blocked) = new
                 changed = True
             sess.cwd = sess.cwd or cwd
+            if sess.hidden_at and (now - age) > sess.hidden_at:
+                self.unhide(sess)
+                changed = True
             if not sess.rc_manual:
                 # the probe read this off the remote's own sockets; a pad
                 # toggle still wins, exactly as for local sessions
@@ -334,7 +376,7 @@ class SessionRegistry:
     def _promote_overflow(self) -> bool:
         changed = False
         for sess in sorted(self._sessions.values(), key=lambda s: s.since):
-            if sess.slot is None:
+            if sess.slot is None and not sess.hidden_at:  # hidden ones stay off
                 slot = self._free_slot()
                 if slot is None:
                     break
@@ -363,6 +405,9 @@ class SessionRegistry:
         then promote overflow sessions into any free slots."""
         seen: set[int] = set()
         for sess in sorted(self._sessions.values(), key=lambda s: s.since, reverse=True):
+            if sess.hidden_at:
+                sess.slot = None      # hidden sessions never hold a key
+                continue
             slot = sess.slot
             if slot is None:
                 continue

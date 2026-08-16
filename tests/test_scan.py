@@ -19,6 +19,13 @@ def test_looks_like_claude_real_shapes():
     assert not scan.looks_like_claude(["nvim", "/home/a/.claude/settings.json"])
 
 
+def test_is_claude_process_checks_the_live_cmdline(monkeypatch):
+    monkeypatch.setattr(scan, "_cmdline", lambda pid: ["/opt/claude/claude"])
+    assert scan.is_claude_process(123) is True
+    monkeypatch.setattr(scan, "_cmdline", lambda pid: ["/usr/bin/firefox"])
+    assert scan.is_claude_process(123) is False
+
+
 def test_ancestor_walk_finds_claude(monkeypatch):
     tree = {10: (["/bin/sh", "-c"], 5), 5: (["node", "/ext/claude-code/cli.js"], 2), 2: (["init"], 1)}
     monkeypatch.setattr(scan, "_cmdline", lambda p: tree.get(p, ([], 0))[0])

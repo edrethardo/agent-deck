@@ -187,3 +187,15 @@ def test_remote_session_overlay_names_its_host():
     sess.host = "spheron-AI-PC"
     sess.model = "opus-5"
     assert overlay_info([sess])[0].startswith("@spheron-AI-PC")
+
+
+def test_hidden_session_occupies_no_key():
+    from agent_monitor.state import SessionRegistry
+
+    reg = SessionRegistry()
+    reg.apply_event("SessionStart", "a", "/home/aaron/code/myproj", 5, None, 1.0)
+    reg.hide_slot(0, now=100.0)
+    sessions = reg.sessions()
+    assert led_colors(sessions) == [0] * (NUM_KEY_LEDS * 3)
+    assert key_names(sessions) == [""] * NUM_KEY_LEDS
+    assert overlay_info(sessions) == [""] * NUM_KEY_LEDS

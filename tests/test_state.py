@@ -1,5 +1,5 @@
 from agent_monitor.model import Status
-from agent_monitor.state import SessionRegistry
+from agent_monitor.state import MAX_SLOTS, SessionRegistry
 
 
 def _start(reg, sid, t=1.0, pid=100):
@@ -501,3 +501,136 @@ def test_remote_session_adopts_its_rc_flag_but_a_pad_pin_wins():
     reg.set_remote_manual(s.slot, False)          # toggled off from the pad menu
     reg.sync_remote("box", [_rsess(remote=True)], now=2.0)
     assert s.remote is False                      # the known state is not overwritten
+
+
+def test_hide_slot_frees_the_key_but_keeps_the_session():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    assert reg.hide_slot(0, now=100.0) is True
+    (s,) = reg.sessions()
+    assert s.slot is None
+    assert s.hidden_at == 100.0
+    assert s.session_id == "a"          # still tracked, still alive
+
+
+def test_hide_slot_on_an_empty_key_is_a_no_op():
+    reg = SessionRegistry()
+    assert reg.hide_slot(3, now=100.0) is False
+
+
+def test_hidden_session_is_not_promoted_into_a_free_key():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.hide_slot(0, now=100.0)
+    reg._promote_overflow()
+    assert reg.sessions()[0].slot is None
+
+
+def test_a_hidden_session_is_still_pruned_when_its_process_dies():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.hide_slot(0, now=100.0)
+    assert reg.prune(lambda pid: False) is True
+    assert reg.sessions() == []
+
+
+def test_hidden_session_reclaims_its_old_key_when_it_is_still_free():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)      # slot 0
+    _start(reg, "b", t=1.0, pid=6)      # slot 1
+    reg.hide_slot(0, now=100.0)
+    reg.unhide(reg.by_id("a"))
+    assert reg.by_id("a").slot == 0
+
+
+def test_hiding_really_frees_the_key_for_a_new_session():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)      # slot 0
+    reg.hide_slot(0, now=100.0)
+    _start(reg, "c", t=2.0, pid=7)      # the freed key is genuinely available
+    assert reg.by_id("c").slot == 0
+    reg.unhide(reg.by_id("a"))
+    assert reg.by_id("a").slot == 1     # best effort: next free key instead
+
+
+def test_unhide_with_no_free_slot_settles_into_ordinary_overflow():
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=1.0, pid=100 + i)
+    reg.hide_slot(0, now=100.0)
+    _start(reg, "filler", t=2.0, pid=999)  # refills the freed slot
+    hidden = reg.by_id("s0")
+    assert reg.unhide(hidden) is True
+    assert hidden.slot is None
+    assert hidden.hidden_at == 0.0
+
+
+def test_unhide_on_a_session_that_was_never_hidden_is_a_no_op():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    s = reg.by_id("a")
+    assert reg.unhide(s) is False
+    assert s.slot == 0
+
+
+def test_any_hook_event_unhides_the_session():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)
+    reg.hide_slot(0, now=100.0)
+    assert reg.by_id("a").slot is None
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 200.0)
+    s = reg.by_id("a")
+    assert (s.hidden_at, s.slot, s.status) == (0.0, 0, Status.BUSY)
+
+
+def test_a_status_neutral_event_still_unhides():
+    reg = SessionRegistry()
+    _start(reg, "a", t=1.0, pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 50.0)   # available+finished
+    reg.hide_slot(0, now=100.0)
+    # a second Stop changes no status at all, but it IS activity
+    assert reg.apply_event("Stop", "a", "/proj/a", 5, None, 200.0) is True
+    assert reg.by_id("a").slot == 0
+
+
+def test_transcript_activity_newer_than_the_hide_unhides():
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.hide_slot(0, now=100.0)
+    # a write from BEFORE the hide must not wake it
+    reg.update_context({5: _ctx(activity=90.0)}, now=105.0)
+    assert reg.by_id("a").slot is None
+    # a write from after it does
+    assert reg.update_context({5: _ctx(activity=110.0)}, now=115.0) is True
+    assert reg.by_id("a").slot == 0
+    assert reg.by_id("a").hidden_at == 0.0
+
+
+def test_remote_probe_activity_unhides():
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess(age=5.0)], now=1000.0)
+    slot = reg.sessions()[0].slot
+    reg.hide_slot(slot, now=1000.0)
+    # age 500 s at now=1400 -> written at 900, before the hide: stays hidden
+    reg.sync_remote("box", [_rsess(age=500.0)], now=1400.0)
+    assert reg.sessions()[0].slot is None
+    # age 5 s at now=1500 -> written at 1495, after the hide: comes back
+    reg.sync_remote("box", [_rsess(age=5.0)], now=1500.0)
+    assert reg.sessions()[0].slot == slot
+
+
+def test_hiding_promotes_a_waiting_session_into_the_freed_key():
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS + 1):           # one session too many: the last overflows
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+    overflowed = reg.by_id(f"s{MAX_SLOTS}")
+    assert overflowed.slot is None
+    reg.hide_slot(0, now=1000.0)
+    assert overflowed.slot == 0              # the freed key goes to who was waiting
+
+
+def test_loading_a_hidden_session_with_a_slot_repairs_it():
+    reg = SessionRegistry.from_dict({"sessions": [
+        {"session_id": "a", "cwd": "/p", "pid": 5, "status": "available",
+         "slot": 0, "since": 1.0, "hidden_at": 50.0}]})
+    assert reg.by_id("a").slot is None
