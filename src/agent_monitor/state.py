@@ -160,6 +160,7 @@ class SessionRegistry:
                 sess.slot = None
                 sess.hidden_at = now
                 _LOGGER.info("hid session %s (was slot %s)", sess.session_id[:8], slot)
+                self._promote_overflow()   # a waiting session may take the freed key
                 return True
         return False
 
@@ -404,6 +405,9 @@ class SessionRegistry:
         then promote overflow sessions into any free slots."""
         seen: set[int] = set()
         for sess in sorted(self._sessions.values(), key=lambda s: s.since, reverse=True):
+            if sess.hidden_at:
+                sess.slot = None      # hidden sessions never hold a key
+                continue
             slot = sess.slot
             if slot is None:
                 continue

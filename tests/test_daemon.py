@@ -418,7 +418,6 @@ async def test_menu_end_signals_and_reports(paths, monkeypatch):
     state_path, sock_path = paths
     pad = FakePad()
     ended = []
-    monkeypatch.setattr(actions, "display_locked", lambda: False)
     monkeypatch.setattr(actions, "end_session", lambda pid: ended.append(pid) or True)
     daemon = Daemon(SessionRegistry(), pad, state_path, sock_path,
                     time_fn=lambda: 100.0, pid_alive=lambda pid: True,
@@ -439,7 +438,6 @@ async def test_menu_end_refuses_a_remote_session(paths, monkeypatch):
     state_path, sock_path = paths
     pad = FakePad()
     ended = []
-    monkeypatch.setattr(actions, "display_locked", lambda: False)
     monkeypatch.setattr(actions, "end_session", lambda pid: ended.append(pid) or True)
     registry = SessionRegistry()
     registry.sync_remote("box", [{"session_id": "r1", "pid": 3024, "cwd": "/p",

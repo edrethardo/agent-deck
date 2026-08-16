@@ -190,8 +190,12 @@ def test_remote_session_overlay_names_its_host():
 
 
 def test_hidden_session_occupies_no_key():
-    sess = _sess(None)          # hiding sets slot to None
-    sess.hidden_at = 100.0
-    assert led_colors([sess]) == [0] * (NUM_KEY_LEDS * 3)
-    assert key_names([sess]) == [""] * NUM_KEY_LEDS
-    assert overlay_info([sess]) == [""] * NUM_KEY_LEDS
+    from agent_monitor.state import SessionRegistry
+
+    reg = SessionRegistry()
+    reg.apply_event("SessionStart", "a", "/home/aaron/code/myproj", 5, None, 1.0)
+    reg.hide_slot(0, now=100.0)
+    sessions = reg.sessions()
+    assert led_colors(sessions) == [0] * (NUM_KEY_LEDS * 3)
+    assert key_names(sessions) == [""] * NUM_KEY_LEDS
+    assert overlay_info(sessions) == [""] * NUM_KEY_LEDS

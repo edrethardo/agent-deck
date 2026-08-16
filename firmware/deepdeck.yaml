@@ -443,7 +443,11 @@ binary_sensor:
         - lambda: |-
             uint32_t now = millis();
             if (id(menu_slot) >= 0) {
-              if (id(menu_cursor) == 4 && (int32_t) (now - id(menu_confirm_until)) >= 0) {
+              // 0 means "not armed": it must be tested explicitly, because the
+              // signed-difference idiom flips sign once millis() passes 2^31.
+              if (id(menu_cursor) == 4 &&
+                  (id(menu_confirm_until) == 0 ||
+                   (int32_t) (now - id(menu_confirm_until)) >= 0)) {
                 // first press on the destructive entry only arms it
                 id(menu_confirm_until) = now + 5000;
                 id(menu_until) = now + 8000;
@@ -497,6 +501,10 @@ font:
   - file: "gfonts://Roboto Mono"
     id: font8
     size: 8
+    # The default glyph set omits '>' (menu selection marker) and '@' (remote
+    # host badge), which then render as nothing.
+    glyphsets:
+      - GF_Latin_Core
 
 image:
   - file: "deepdeck_logo.xbm"
@@ -520,7 +528,8 @@ display:
           it.print(0, 26, id(font8), id(menu_cursor) == 1 ? "> toggle remote" : "  toggle remote");
           it.print(0, 36, id(font8), id(menu_cursor) == 2 ? "> compact context" : "  compact context");
           it.print(0, 46, id(font8), id(menu_cursor) == 3 ? "> hide key" : "  hide key");
-          if (id(menu_cursor) == 4 && (int32_t) (millis() - id(menu_confirm_until)) < 0) {
+          if (id(menu_cursor) == 4 && id(menu_confirm_until) != 0 &&
+              (int32_t) (millis() - id(menu_confirm_until)) < 0) {
             it.print(0, 56, id(font8), "> end session? confirm");
           } else {
             it.print(0, 56, id(font8), id(menu_cursor) == 4 ? "> end session" : "  end session");

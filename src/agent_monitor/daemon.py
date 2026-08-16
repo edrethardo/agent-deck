@@ -122,7 +122,10 @@ class Daemon:
         if option == 3:                       # hide: display-only, never blocked
             slot = sess.slot
             if self._registry.hide_slot(slot, self._time_fn()):
-                await self._note(slot, "hidden")   # its refresh pushes the freed key too
+                if any(s.slot == slot for s in self._registry.sessions()):
+                    await self._refresh()     # someone was promoted into the key
+                else:
+                    await self._note(slot, "hidden")   # its refresh pushes the freed key too
             return
         if option == 4:                       # end: stop the process itself
             if sess.host:
@@ -130,7 +133,7 @@ class Daemon:
                 await self._note(sess.slot, "local only")
                 return
             ok = await asyncio.to_thread(actions.end_session, sess.pid)
-            await self._note(sess.slot, "ending…" if ok else "failed")
+            await self._note(sess.slot, "ending..." if ok else "failed")
             return
         fn = {0: actions.restart_session,
               1: actions.toggle_remote_control,

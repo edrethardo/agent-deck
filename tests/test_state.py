@@ -617,3 +617,20 @@ def test_remote_probe_activity_unhides():
     # age 5 s at now=1500 -> written at 1495, after the hide: comes back
     reg.sync_remote("box", [_rsess(age=5.0)], now=1500.0)
     assert reg.sessions()[0].slot == slot
+
+
+def test_hiding_promotes_a_waiting_session_into_the_freed_key():
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS + 1):           # one session too many: the last overflows
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+    overflowed = reg.by_id(f"s{MAX_SLOTS}")
+    assert overflowed.slot is None
+    reg.hide_slot(0, now=1000.0)
+    assert overflowed.slot == 0              # the freed key goes to who was waiting
+
+
+def test_loading_a_hidden_session_with_a_slot_repairs_it():
+    reg = SessionRegistry.from_dict({"sessions": [
+        {"session_id": "a", "cwd": "/p", "pid": 5, "status": "available",
+         "slot": 0, "since": 1.0, "hidden_at": 50.0}]})
+    assert reg.by_id("a").slot is None
