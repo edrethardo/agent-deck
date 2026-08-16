@@ -94,6 +94,16 @@ class Daemon:
                 asyncio.get_event_loop().create_task(self._run_action(sess, option))
                 return
 
+    def set_setting(self, name: str, value: bool) -> None:
+        """Adopt a setting the pad reports (it owns them; we follow)."""
+        if name != "forward":
+            _LOGGER.info("ignoring unknown pad setting %r", name)
+            return
+        if self._registry.forward_mode != value:
+            self._registry.forward_mode = value
+            _LOGGER.info("forward mode %s", "on" if value else "off")
+        asyncio.get_event_loop().create_task(self._refresh())
+
     async def _focus(self, cwd: str, slot: int | None = None) -> None:
         from .focus import focus_window
         ok = await asyncio.to_thread(focus_window, cwd)
@@ -267,6 +277,7 @@ class Daemon:
                 "updated": self._time_fn(),
                 "sessions": [s.to_dict() for s in sessions],
                 "usage": [dataclasses.asdict(lim) for lim in self._usage],
+                "forward_mode": self._registry.forward_mode,
             }
             tmp = self._state_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload))

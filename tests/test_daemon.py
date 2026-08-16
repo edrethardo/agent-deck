@@ -455,3 +455,46 @@ async def test_menu_end_refuses_a_remote_session(paths, monkeypatch):
     # an "@host" badge line — so the full overlay is "local only\n@box".
     assert any(s[4][0].startswith("local only") for s in pad.shows)
     await _stop(task)
+
+
+async def test_setting_from_the_pad_flips_forward_mode_and_persists(paths):
+    state_path, sock_path = paths
+    pad = FakePad()
+    registry = SessionRegistry()
+    daemon = Daemon(registry, pad, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    daemon.set_setting("forward", True)
+    await asyncio.sleep(0.05)
+    assert registry.forward_mode is True
+    assert json.loads(state_path.read_text())["forward_mode"] is True
+    daemon.set_setting("forward", False)
+    await asyncio.sleep(0.05)
+    assert json.loads(state_path.read_text())["forward_mode"] is False
+    await _stop(task)
+
+
+async def test_an_unknown_setting_name_is_ignored(paths):
+    state_path, sock_path = paths
+    registry = SessionRegistry()
+    daemon = Daemon(registry, None, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    daemon.set_setting("teleport", True)
+    await asyncio.sleep(0.05)
+    assert registry.forward_mode is False
+    await _stop(task)
+
+
+async def test_forward_mode_survives_a_daemon_restart(paths):
+    state_path, sock_path = paths
+    state_path.write_text(json.dumps({"sessions": [], "forward_mode": True}))
+    registry = SessionRegistry()
+    daemon = Daemon(registry, None, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    assert json.loads(state_path.read_text())["forward_mode"] is True
+    await _stop(task)

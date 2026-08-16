@@ -28,7 +28,8 @@ def _run_daemon() -> int:
                         ctx_fn=session_context, usage_fn=UsageProvider(),
                         remote_fn=probe_all)
         pad = DeepDeckPad(
-            cfg, on_focus=daemon.focus_slot, on_move=daemon.move_slot, on_action=daemon.action_slot
+            cfg, on_focus=daemon.focus_slot, on_move=daemon.move_slot,
+            on_action=daemon.action_slot, on_setting=daemon.set_setting,
         ) if cfg else None
         daemon._pad = pad
 
