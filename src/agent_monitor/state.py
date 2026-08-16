@@ -18,6 +18,9 @@ class SessionRegistry:
         # Which key each project last held — lets a restarted session reclaim
         # its key even when lower-numbered keys are free.
         self._last_slot_by_cwd: dict[str, int] = {}
+        # When the board is full, let a working/blocked session take the key of
+        # the session idle longest. Owned by the pad; see docs/superpowers/specs.
+        self.forward_mode = False
 
     def sessions(self) -> list[Session]:
         """Sorted by slot, overflow (None) last."""
@@ -60,7 +63,11 @@ class SessionRegistry:
                     source = "memory"
                     self._last_slot_by_cwd.pop(cwd, None)
             if slot is None:
-                slot = self._claim_slot_for_real()
+                # Forward mode may only evict on behalf of a session that is
+                # itself active — a brand-new AVAILABLE session must wait its
+                # turn in overflow like anyone else.
+                slot = self._claim_slot_for_real(
+                    active=status in (Status.BUSY, Status.WAITING))
             _LOGGER.info("session %s created pid=%s slot=%s (%s)",
                          session_id[:8], pid, slot, source)
             self._sessions[session_id] = Session(
@@ -91,6 +98,11 @@ class SessionRegistry:
         sess.status = new
         sess.finished = finished
         sess.since = now
+        if sess.slot is None and not sess.hidden_at and new in (Status.BUSY, Status.WAITING):
+            # It is doing something or needs the user: with forward mode on it
+            # may now displace the idlest session (a no-op when a key is free
+            # anyway, and when forward mode is off).
+            sess.slot = self._claim_slot_for_real()
         return True
 
     def decay_finished(self, now: float, hold: float = GREEN_HOLD_S) -> bool:
@@ -318,7 +330,8 @@ class SessionRegistry:
                     slot = preferred
                     self._last_slot_by_cwd.pop(key, None)
                 else:
-                    slot = self._claim_slot_for_real()
+                    slot = self._claim_slot_for_real(
+                        active=status in (Status.BUSY, Status.WAITING))
                 _LOGGER.info("remote session %s on %s slot=%s", sid[:24], host, slot)
                 sess = Session(session_id=sid, cwd=cwd, pid=0, status=status,
                                slot=slot, since=now, host=host)
@@ -353,17 +366,45 @@ class SessionRegistry:
             changed = True
         return self._promote_overflow() or changed
 
-    def _claim_slot_for_real(self) -> int | None:
-        """Free slot, or evict the newest scanned (UNKNOWN) session to overflow."""
+    def _claim_slot_for_real(self, active: bool = True) -> int | None:
+        """Free slot, or evict the newest scanned (UNKNOWN) session to overflow.
+
+        With forward mode on, a full board additionally yields the key of the
+        session idle longest — see `_displace_longest_idle`. `active` gates
+        only that last resort: it must be False for a session that is not
+        itself BUSY/WAITING, so a merely-created or idle session cannot use
+        forward mode to jump the overflow queue."""
         slot = self._free_slot()
         if slot is not None:
             return slot
         unknowns = [s for s in self._sessions.values()
                     if s.status is Status.UNKNOWN and s.slot is not None]
-        if not unknowns:
+        if unknowns:
+            victim = max(unknowns, key=lambda s: s.since)
+            slot, victim.slot = victim.slot, None
+            return slot
+        return self._displace_longest_idle() if active else None
+
+    def _displace_longest_idle(self) -> int | None:
+        """Free the key of the longest-idle session, or None if there is none.
+
+        Only plain idle sessions are eligible: a BUSY or WAITING one is doing
+        or needing something, and a hidden one holds no key anyway. A green
+        (recently finished) session is protected for free, because `since` is
+        recent by construction and so it is never the longest idle."""
+        if not self.forward_mode:
             return None
-        victim = max(unknowns, key=lambda s: s.since)
+        idle = [s for s in self._sessions.values()
+                if s.slot is not None and s.status is Status.AVAILABLE]
+        if not idle:
+            return None
+        # oldest `since` wins; the higher slot breaks an exact tie so the
+        # choice never depends on dict iteration order
+        victim = min(idle, key=lambda s: (s.since, -s.slot))
+        self._remember_slot(victim)          # it comes back to this key
         slot, victim.slot = victim.slot, None
+        _LOGGER.info("forward mode: session %s yields slot %s (idle longest)",
+                     victim.session_id[:8], slot)
         return slot
 
     def _free_slot(self) -> int | None:
@@ -385,7 +426,8 @@ class SessionRegistry:
         return changed
 
     def to_dict(self) -> dict:
-        return {"sessions": [s.to_dict() for s in self.sessions()]}
+        return {"sessions": [s.to_dict() for s in self.sessions()],
+                "forward_mode": self.forward_mode}
 
     @classmethod
     def from_dict(cls, data: dict) -> "SessionRegistry":
@@ -397,6 +439,7 @@ class SessionRegistry:
             except (KeyError, ValueError, TypeError):
                 continue
             reg._sessions[sess.session_id] = sess
+        reg.forward_mode = bool(data.get("forward_mode", False))
         reg._normalize_slots()
         return reg
 

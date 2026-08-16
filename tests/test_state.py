@@ -634,3 +634,119 @@ def test_loading_a_hidden_session_with_a_slot_repairs_it():
         {"session_id": "a", "cwd": "/p", "pid": 5, "status": "available",
          "slot": 0, "since": 1.0, "hidden_at": 50.0}]})
     assert reg.by_id("a").slot is None
+
+
+def _fill_board(reg, status_of=None):
+    """One session per key, each idler than the last: s0 is the longest idle."""
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+        if status_of and i in status_of:
+            reg.apply_event(status_of[i], f"s{i}", f"/proj/s{i}", 100 + i, None, float(i))
+    return reg
+
+
+def test_forward_mode_is_off_by_default_and_round_trips():
+    reg = SessionRegistry()
+    assert reg.forward_mode is False
+    reg.forward_mode = True
+    assert SessionRegistry.from_dict(reg.to_dict()).forward_mode is True
+    assert SessionRegistry.from_dict({"sessions": []}).forward_mode is False
+
+
+def test_full_board_without_forward_mode_leaves_the_newcomer_in_overflow():
+    reg = _fill_board(SessionRegistry())
+    _start(reg, "new", t=99.0, pid=999)
+    assert reg.by_id("new").slot is None
+    assert reg.by_id("s0").slot == 0          # the idlest keeps its key
+
+
+def test_forward_mode_gives_the_longest_idle_key_to_a_working_session():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)       # SessionStart -> AVAILABLE, no displacing
+    assert reg.by_id("new").slot is None
+    # it starts working: now it earns a key
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot == 0         # took the longest-idle session's key
+    assert reg.by_id("s0").slot is None       # which moved to overflow
+
+
+def test_forward_mode_never_displaces_an_active_or_hidden_session():
+    from agent_monitor.model import Status
+
+    # every key busy except s5, which is hidden -> no eligible victim
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+        reg.apply_event("UserPromptSubmit", f"s{i}", f"/proj/s{i}", 100 + i, None, float(i))
+    reg.forward_mode = True
+    reg.hide_slot(5, now=50.0)                # frees key 5...
+    _start(reg, "filler", t=60.0, pid=900)    # ...which this takes
+    reg.apply_event("UserPromptSubmit", "filler", "/proj/filler", 900, None, 61.0)  # ...and gets busy
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot is None      # all keys busy: nobody is displaced
+    assert all(s.status is Status.BUSY or s.session_id in ("filler", "new")
+               for s in reg.sessions() if s.slot is not None)
+
+
+def test_a_blocked_session_also_displaces():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("PermissionRequest", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_the_displaced_session_keeps_its_key_in_memory():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    victim = reg.by_id("s0")
+    assert reg._last_slot_by_cwd.get("/proj/s0") == 0   # remembered for its return
+
+
+def test_an_overflow_session_takes_a_key_only_when_it_turns_active():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    assert reg.by_id("new").slot is None          # idle: waits
+    reg.apply_event("Stop", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot is None          # finished/green: still waits
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 101.0)
+    assert reg.by_id("new").slot == 0             # working: claims a key
+
+
+def test_a_scanned_session_is_evicted_before_any_idle_one():
+    """The existing UNKNOWN fallback stays the first resort: a scan-discovered
+    session never had hooks, so it is the cheapest thing on the board to lose."""
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS - 1):
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+    reg.add_scanned(500, "/proj/scanned", 50.0)   # takes the last free key
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("proc-500").slot is None     # the scanned one yielded
+    assert reg.by_id("s0").slot == 0              # the idlest kept its key
+
+
+def test_a_freshly_finished_session_is_never_the_victim():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    reg.apply_event("Stop", "s0", "/proj/s0", 100, None, 90.0)   # idlest turns green
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("s0").slot == 0              # green: `since` is recent
+    assert reg.by_id("s1").slot is None           # the next-idlest yielded instead
+
+
+def test_an_exact_tie_is_broken_deterministically():
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=5.0, pid=100 + i)  # every session equally idle
+    reg.forward_mode = True
+    _start(reg, "new", t=5.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 5.0)
+    assert reg.by_id(f"s{MAX_SLOTS - 1}").slot is None   # highest slot yields
