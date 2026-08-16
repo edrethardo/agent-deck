@@ -373,6 +373,13 @@ sensor:
             id(oled).update();
             return;
           }
+          if (id(gmenu_open)) {
+            // one entry today: turning only keeps the menu alive, it must not
+            // fall through to the brightness control the user cannot see
+            id(gmenu_until) = millis() + 8000;
+            id(oled).update();
+            return;
+          }
           // Fine 1 % steps below 10 % — the interesting dimming happens there.
           id(led_brightness) = std::min(1.0f, id(led_brightness) + (id(led_brightness) < 0.10f ? 0.01f : 0.05f));
           char buf[24];
@@ -386,6 +393,13 @@ sensor:
             id(menu_cursor) = (id(menu_cursor) + 4) % 5;  // one step back
             id(menu_confirm_until) = 0;
             id(menu_until) = millis() + 8000;
+            id(oled).update();
+            return;
+          }
+          if (id(gmenu_open)) {
+            // one entry today: turning only keeps the menu alive, it must not
+            // fall through to the brightness control the user cannot see
+            id(gmenu_until) = millis() + 8000;
             id(oled).update();
             return;
           }
@@ -415,7 +429,7 @@ sensor:
         pullup: true
     on_clockwise:
       - lambda: |-
-          if (id(menu_slot) >= 0) return;  // the menu belongs to the left knob
+          if (id(menu_slot) >= 0 || id(gmenu_open)) return;  // a menu owns the screen
           uint32_t now = millis();
           if (id(setting_mode) >= 0) {     // settings open: adjust the active entry
             if (id(setting_mode) == 0)
@@ -432,7 +446,7 @@ sensor:
           id(oled).update();
     on_anticlockwise:
       - lambda: |-
-          if (id(menu_slot) >= 0) return;
+          if (id(menu_slot) >= 0 || id(gmenu_open)) return;  // a menu owns the screen
           uint32_t now = millis();
           if (id(setting_mode) >= 0) {
             if (id(setting_mode) == 0)
@@ -522,7 +536,7 @@ binary_sensor:
             // close. Values persist (restore_value) and preview live on the
             // LEDs. Compact lives in the left-knob menu.
             uint32_t now = millis();
-            if (id(menu_slot) >= 0) return;
+            if (id(menu_slot) >= 0 || id(gmenu_open)) return;  // a menu owns the screen
             id(setting_mode) = id(setting_mode) >= 1 ? -1 : id(setting_mode) + 1;
             if (id(setting_mode) >= 0) id(setting_until) = now + 8000;
             id(oled).update();
