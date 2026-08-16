@@ -686,8 +686,7 @@ def test_forward_mode_never_displaces_an_active_or_hidden_session():
     _start(reg, "new", t=99.0, pid=999)
     reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
     assert reg.by_id("new").slot is None      # all keys busy: nobody is displaced
-    assert all(s.status is Status.BUSY or s.session_id in ("filler", "new")
-               for s in reg.sessions() if s.slot is not None)
+    assert all(s.status is Status.BUSY for s in reg.sessions() if s.slot is not None)
 
 
 def test_a_blocked_session_also_displaces():
@@ -703,7 +702,6 @@ def test_the_displaced_session_keeps_its_key_in_memory():
     reg.forward_mode = True
     _start(reg, "new", t=99.0, pid=999)
     reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
-    victim = reg.by_id("s0")
     assert reg._last_slot_by_cwd.get("/proj/s0") == 0   # remembered for its return
 
 
@@ -776,3 +774,42 @@ def test_a_woken_session_that_starts_working_does_displace():
     _start(reg, "filler", t=60.0, pid=900)
     reg.apply_event("UserPromptSubmit", "s0", "/proj/s0", 100, None, 70.0)
     assert reg.by_id("s0").slot is not None        # working: displaced the idlest
+
+
+def test_a_blocked_session_in_overflow_claims_a_key_via_the_transcript_path():
+    """question/blocked are the VS Code 'needs you' signals and fire no hook."""
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    assert reg.by_id("new").slot is None
+    reg.update_context({999: _ctx(question=True)}, now=100.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_a_usage_limited_session_in_overflow_also_claims():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.update_context({999: _ctx(blocked=True)}, now=100.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_autonomous_activity_lets_an_overflowed_session_claim():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("Stop", "new", "/proj/new", 999, None, 100.0)   # green, no key
+    assert reg.by_id("new").slot is None
+    # a background subagent writes the transcript: no hook fires for this
+    reg.update_context({999: _ctx(activity=200.0)}, now=205.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_turning_forward_mode_on_rescues_a_waiting_session_at_once():
+    reg = _fill_board(SessionRegistry())
+    _start(reg, "stuck", t=99.0, pid=999)
+    reg.apply_event("PermissionRequest", "stuck", "/proj/stuck", 999, None, 100.0)
+    assert reg.by_id("stuck").slot is None          # forward mode still off
+    assert reg.set_forward_mode(True) is True
+    assert reg.by_id("stuck").slot == 0             # rescued without any new event
+    assert reg.set_forward_mode(True) is False      # idempotent

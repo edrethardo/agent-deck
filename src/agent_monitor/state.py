@@ -98,11 +98,7 @@ class SessionRegistry:
         sess.status = new
         sess.finished = finished
         sess.since = now
-        if sess.slot is None and not sess.hidden_at and new in (Status.BUSY, Status.WAITING):
-            # It is doing something or needs the user: with forward mode on it
-            # may now displace the idlest session (a no-op when a key is free
-            # anyway, and when forward mode is off).
-            sess.slot = self._claim_slot_for_real(active=True)
+        self._claim_if_active(sess)
         return True
 
     def decay_finished(self, now: float, hold: float = GREEN_HOLD_S) -> bool:
@@ -232,6 +228,7 @@ class SessionRegistry:
                 (sess.context_pct, sess.model, sess.effort,
                  sess.question, sess.blocked) = new
                 changed = True
+            changed |= self._claim_if_active(sess)
             if info.interrupted:
                 # Esc ends the turn without a Stop hook. The session is idle
                 # and the user is right there — green, like a finished task.
@@ -254,6 +251,7 @@ class SessionRegistry:
                 sess.since = info.activity
                 sess.finished = False
                 changed = True
+                self._claim_if_active(sess)
         return self._update_peer_waits(infos) or changed
 
     def _update_peer_waits(self, infos: dict[int, "ContextInfo | None"]) -> bool:
@@ -351,6 +349,7 @@ class SessionRegistry:
                 (sess.status, sess.finished, sess.model, sess.effort,
                  sess.context_pct, sess.question, sess.blocked) = new
                 changed = True
+                changed |= self._claim_if_active(sess)
             sess.cwd = sess.cwd or cwd
             if sess.hidden_at and (now - age) > sess.hidden_at:
                 self.unhide(sess)
@@ -389,13 +388,45 @@ class SessionRegistry:
             return slot
         return self._displace_longest_idle() if active else None
 
+    def set_forward_mode(self, value: bool) -> bool:
+        """Toggle forward mode. True if the display changed.
+
+        Switching it ON re-evaluates the board immediately: sessions already
+        waiting in overflow are what the user is trying to rescue."""
+        if self.forward_mode == value:
+            return False
+        self.forward_mode = value
+        changed = True
+        if value:
+            # oldest first, so the longest-waiting session is served first
+            for sess in sorted(self._sessions.values(), key=lambda s: s.since):
+                self._claim_if_active(sess)
+        return changed
+
+    def _claim_if_active(self, sess: Session) -> bool:
+        """Give an overflowed session a key once it genuinely needs one.
+
+        `question` and `blocked` count as needing one even when `status` does
+        not say so: in VS Code no hook fires for a permission prompt, and both
+        render red — exactly the states forward mode exists to surface."""
+        if sess.slot is not None or sess.hidden_at:
+            return False
+        if not (sess.status in (Status.BUSY, Status.WAITING) or sess.question or sess.blocked):
+            return False
+        slot = self._claim_slot_for_real(active=True)
+        if slot is None:
+            return False
+        sess.slot = slot
+        return True
+
     def _displace_longest_idle(self) -> int | None:
         """Free the key of the longest-idle session, or None if there is none.
 
         Only plain idle sessions are eligible: a BUSY or WAITING one is doing
         or needing something, and a hidden one holds no key anyway. A green
-        (recently finished) session is protected for free, because `since` is
-        recent by construction and so it is never the longest idle."""
+        (recently finished) session is protected in practice, because `since`
+        is recent by construction — it is chosen only when every keyed session
+        is green and somebody has to yield."""
         if not self.forward_mode:
             return None
         idle = [s for s in self._sessions.values()

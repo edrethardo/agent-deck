@@ -43,7 +43,7 @@ resort, used only when there is no `UNKNOWN` victim either.
 of its last state change). Sessions that are `BUSY`, `WAITING` or hidden are never
 victims. **Green needs no special rule:** a green key is one that just finished, so
 its `since` is recent by construction and it cannot be the longest-idle candidate —
-a waiting result never gets bumped off the board.
+a waiting result is bumped only if every key holds one.
 
 The displaced session is not lost. Overflow already means "tracked, listed in the
 CLI, no key": it keeps its remembered key in the sticky-key memory, returns

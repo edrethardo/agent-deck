@@ -99,8 +99,7 @@ class Daemon:
         if name != "forward":
             _LOGGER.info("ignoring unknown pad setting %r", name)
             return
-        if self._registry.forward_mode != value:
-            self._registry.forward_mode = value
+        if self._registry.set_forward_mode(value):
             _LOGGER.info("forward mode %s", "on" if value else "off")
         asyncio.get_event_loop().create_task(self._refresh())
 
