@@ -33,6 +33,12 @@ When a session needs a key, has none, and no key is free:
 It applies both to a session arriving on a full board and to one already in
 overflow that starts working or becomes blocked.
 
+**Order of resort.** Slot allocation already has one fallback for a full board:
+it evicts the *newest* scan-discovered (`UNKNOWN`) session — one found by the /proc
+scan, which never had hooks and shows no live status. That stays first, because such
+a session is the cheapest thing on the board to lose. Forward mode is the next
+resort, used only when there is no `UNKNOWN` victim either.
+
 "Idle longest" means: status `AVAILABLE`, largest age of `since` (the timestamp
 of its last state change). Sessions that are `BUSY`, `WAITING` or hidden are never
 victims. **Green needs no special rule:** a green key is one that just finished, so
