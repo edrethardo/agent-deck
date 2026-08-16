@@ -30,6 +30,7 @@ class DeepDeckPad:
         on_focus: Callable[[int], None] | None = None,
         on_move: Callable[[int, int], None] | None = None,
         on_action: Callable[[int, int], None] | None = None,
+        on_setting: Callable[[str, bool], None] | None = None,
     ):
         self._cfg = config
         self._factory = client_factory or (
@@ -47,6 +48,7 @@ class DeepDeckPad:
         self._on_focus = on_focus
         self._on_move = on_move
         self._on_action = on_action
+        self._on_setting = on_setting
         self._last_payloads: dict[int, str] = {}
 
     def _make_on_stop(self, client, stopped: asyncio.Event):
@@ -86,7 +88,8 @@ class DeepDeckPad:
                 self._service = service
                 self._client = client
                 self._connected.set()
-                if self._on_focus is not None or self._on_move is not None or self._on_action is not None:
+                if (self._on_focus is not None or self._on_move is not None
+                        or self._on_action is not None or self._on_setting is not None):
                     keys = {}
                     for e in entities:
                         oid = getattr(e, "object_id", "")
@@ -96,6 +99,8 @@ class DeepDeckPad:
                             keys[e.key] = "move"
                         elif oid == "action_request":
                             keys[e.key] = "action"
+                        elif oid == "setting_request":
+                            keys[e.key] = "setting"
                     if keys:
                         subscribed_at = self._loop_time()
                         client.subscribe_states(
@@ -135,6 +140,14 @@ class DeepDeckPad:
         if not payload or payload == self._last_payloads.get(state.key):
             return
         self._last_payloads[state.key] = payload
+        if kind == "setting":
+            # A setting is state, not an event: the value replayed on connect
+            # is exactly how a restarted daemon learns what the pad holds, so
+            # this channel deliberately skips the replay suppression below.
+            parts = payload.split(":")
+            if len(parts) >= 2 and self._on_setting is not None:
+                self._on_setting(parts[0], parts[1] == "1")
+            return
         # subscribe_states replays current states on every (re)connect; a
         # replayed press must never fire again minutes later.
         if self._loop_time() - subscribed_at < 1.0:

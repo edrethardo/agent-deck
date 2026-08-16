@@ -23,7 +23,8 @@ class FakeClient:
     async def list_entities_services(self):
         return [SimpleNamespace(object_id="focus_request", key=99),
                 SimpleNamespace(object_id="move_request", key=98),
-                SimpleNamespace(object_id="action_request", key=97)], [
+                SimpleNamespace(object_id="action_request", key=97),
+                SimpleNamespace(object_id="setting_request", key=96)], [
             SimpleNamespace(name="other", args=[]),
             SimpleNamespace(
                 name="set_state",
@@ -253,4 +254,50 @@ async def test_action_event_triggers_action_callback(fakes):
     assert actions_seen == [(4, 1)]
     created[0].state_callback(SimpleNamespace(key=97, state="4:1:123"))  # duplicate
     assert actions_seen == [(4, 1)]
+    task.cancel()
+
+
+async def test_setting_event_triggers_the_setting_callback(fakes):
+    created, factory = fakes
+    seen = []
+    pad = DeepDeckPad(_cfg(), client_factory=factory,
+                      on_setting=lambda name, value: seen.append((name, value)))
+    task = asyncio.create_task(pad.run())
+    assert await pad.wait_connected(1)
+    await asyncio.sleep(1.1)
+    created[0].state_callback(SimpleNamespace(key=96, state="forward:1:123"))
+    assert seen == [("forward", True)]
+    created[0].state_callback(SimpleNamespace(key=96, state="forward:0:456"))
+    assert seen == [("forward", True), ("forward", False)]
+    task.cancel()
+
+
+async def test_a_replayed_setting_is_accepted_unlike_a_replayed_press(fakes):
+    """A setting is state, not an event: the value replayed on (re)connect is
+    how a restarted daemon learns what the pad currently holds."""
+    created, factory = fakes
+    seen = []
+    focused = []
+    pad = DeepDeckPad(_cfg(), client_factory=factory, on_focus=focused.append,
+                      on_setting=lambda name, value: seen.append((name, value)))
+    task = asyncio.create_task(pad.run())
+    assert await pad.wait_connected(1)
+    # both arrive immediately after subscribe, i.e. inside the replay window
+    created[0].state_callback(SimpleNamespace(key=99, state="7:555"))
+    created[0].state_callback(SimpleNamespace(key=96, state="forward:1:123"))
+    assert focused == []                       # a replayed key press is ignored
+    assert seen == [("forward", True)]         # a replayed setting is adopted
+    task.cancel()
+
+
+async def test_an_unparsable_setting_is_ignored(fakes):
+    created, factory = fakes
+    seen = []
+    pad = DeepDeckPad(_cfg(), client_factory=factory,
+                      on_setting=lambda name, value: seen.append((name, value)))
+    task = asyncio.create_task(pad.run())
+    assert await pad.wait_connected(1)
+    await asyncio.sleep(1.1)
+    created[0].state_callback(SimpleNamespace(key=96, state="garbage"))
+    assert seen == []
     task.cancel()
