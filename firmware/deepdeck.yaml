@@ -18,6 +18,9 @@ esphome:
           id: notif_leds
           brightness: 100%
           effect: usage_warning
+      - lambda: |-
+          id(setting_req).publish_state(std::string("forward:") +
+                                        (id(forward_mode) ? "1" : "0") + ":0");
 
 esp32:
   board: esp32dev
@@ -150,6 +153,18 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  - id: gmenu_open
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: gmenu_until
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: forward_mode
+    type: bool
+    restore_value: yes      # the pad owns this setting; it survives reboots
+    initial_value: 'false'
 
 light:
   - platform: esp32_rmt_led_strip
@@ -272,6 +287,7 @@ interval:
               bool hit = gpio_get_level(SCAN_ROWS[r]);
               if (hit && !last[slot]) {
                 if (id(menu_slot) >= 0) { id(menu_slot) = -1; id(menu_confirm_until) = 0; }
+                id(gmenu_open) = false;
                 press_start[slot] = now;
                 hold_fired[slot] = false;
                 if (id(move_src) >= 0) {
@@ -329,6 +345,10 @@ text_sensor:
   - platform: template
     id: action_req
     name: "Action Request"
+    update_interval: never
+  - platform: template
+    id: setting_req
+    name: "Setting Request"
     update_interval: never
 
 sensor:
@@ -469,6 +489,16 @@ binary_sensor:
               id(menu_cursor) = 0;
               id(menu_until) = now + 8000;
               id(overlay_slot) = -1;
+            } else if (id(gmenu_open)) {
+              // second press inside the settings menu toggles the entry
+              id(forward_mode) = !id(forward_mode);
+              id(setting_req).publish_state(std::string("forward:") +
+                                            (id(forward_mode) ? "1" : "0") +
+                                            ":" + to_string(now));
+              id(gmenu_until) = now + 8000;
+            } else {
+              id(gmenu_open) = true;          // nothing showing: global settings
+              id(gmenu_until) = now + 8000;
             }
             id(oled).update();
     # GPIO34 is input-only with no internal pulls; the PCB biases it and the
@@ -518,6 +548,16 @@ display:
     address: 0x3C
     update_interval: 500ms
     lambda: |-
+      if (id(gmenu_open)) {
+        if ((int32_t) (millis() - id(gmenu_until)) < 0) {
+          it.print(0, 0, id(font8), "settings");
+          it.print(0, 20, id(font8), id(forward_mode) ? "> forward mode: on"
+                                                      : "> forward mode: off");
+          it.print(0, 50, id(font8), "press: toggle");
+          return;
+        }
+        id(gmenu_open) = false;   // timed out
+      }
       if (id(menu_slot) >= 0) {
         if ((int32_t) (millis() - id(menu_until)) < 0) {
           std::string header = id(menu_slot) < (int) id(key_names).size() && !id(key_names)[id(menu_slot)].empty()
