@@ -196,15 +196,18 @@ class SessionRegistry:
     def update_remote_flags(self, has_rc: Callable[[int], bool]) -> bool:
         """Refresh each session's remote-control flag. True if any changed.
 
-        Sessions with a manual (pad-toggled) flag are skipped: the relay
-        connection lingers after an in-process off-toggle, so detection
-        would wrongly overwrite the known state."""
+        True latches. A False reading is treated as no-signal, not an off:
+        the relay socket lingers after `/remote-control off` (cherny confirmed
+        on issue #85304, WB-179), so a False almost always means the process
+        lost its Anthropic connection — a wifi hiccup would otherwise blank
+        every previously-remote key at once (WB-180). Sessions with the
+        pad-pinned flag (`rc_manual`) are skipped entirely; that is the only
+        channel that can turn remote OFF."""
         changed = False
         for sess in self._sessions.values():
             if sess.pid > 1 and not sess.rc_manual:
-                flag = has_rc(sess.pid)
-                if flag != sess.remote:
-                    sess.remote = flag
+                if has_rc(sess.pid) and not sess.remote:
+                    sess.remote = True
                     changed = True
         return changed
 
@@ -355,11 +358,11 @@ class SessionRegistry:
                 self.unhide(sess)
                 changed = True
             if not sess.rc_manual:
-                # the probe read this off the remote's own sockets; a pad
-                # toggle still wins, exactly as for local sessions
-                flag = bool(entry.get("remote"))
-                if sess.remote != flag:
-                    sess.remote = flag
+                # Same true-latch rule as update_remote_flags: the probe reads
+                # the remote box's sockets, so a network hiccup THERE would
+                # otherwise blank the key here. Only True flips (WB-180).
+                if bool(entry.get("remote")) and not sess.remote:
+                    sess.remote = True
                     changed = True
         for sid in [s for s, sess in self._sessions.items()
                     if sess.host == host and s not in seen]:

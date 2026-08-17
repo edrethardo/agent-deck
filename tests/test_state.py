@@ -228,7 +228,38 @@ def test_update_remote_flags_reports_changes():
     assert reg.update_remote_flags(lambda pid: True) is True
     assert reg.by_id("a").remote is True
     assert reg.update_remote_flags(lambda pid: True) is False
-    assert reg.update_remote_flags(lambda pid: False) is True
+
+
+def test_update_remote_flags_latches_true_across_a_network_drop():
+    """A False from the detector never blanks a session already flagged remote.
+
+    The relay socket lingers after `/remote-control off` (cherny confirmed on
+    issue #85304, WB-179), so a False reading almost always means a transient
+    network hiccup — not an actual off-toggle. If we followed it, every
+    previously-blue key would flash to white the moment wifi drops (WB-180)."""
+    reg = SessionRegistry()
+    _start(reg, "a", pid=100)
+    _start(reg, "b", pid=101)
+    reg.update_remote_flags(lambda pid: True)                    # both blue
+    assert reg.by_id("a").remote is True
+    assert reg.by_id("b").remote is True
+    # network drops: every socket disappears at once
+    assert reg.update_remote_flags(lambda pid: False) is False   # nothing changed
+    assert reg.by_id("a").remote is True
+    assert reg.by_id("b").remote is True
+    # network returns
+    assert reg.update_remote_flags(lambda pid: True) is False    # still True
+
+
+def test_sync_remote_latches_remote_true_across_a_probe_hiccup():
+    """A remote box's own network hiccup must not blank its blue keys either."""
+    reg = SessionRegistry()
+    entry_on = {"session_id": "r1", "pid": 3024, "cwd": "/p", "age": 5.0, "remote": True}
+    reg.sync_remote("box", [entry_on], now=100.0)
+    assert reg.by_id("box:r1").remote is True
+    entry_off = dict(entry_on, remote=False)
+    reg.sync_remote("box", [entry_off], now=101.0)
+    assert reg.by_id("box:r1").remote is True                    # still blue
 
 
 def test_scan_rediscovery_reclaims_projects_key():

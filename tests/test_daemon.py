@@ -180,7 +180,7 @@ async def test_second_daemon_refuses_to_steal_live_socket(paths):
 
 async def test_rc_loop_updates_flags_quickly(paths):
     state_path, sock_path = paths
-    rc = {"value": True}
+    rc = {"value": False}
     daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
                     time_fn=lambda: 1.0, pid_alive=lambda pid: True,
                     rc_fn=lambda pid: rc["value"], rc_interval=0.05)
@@ -188,10 +188,14 @@ async def test_rc_loop_updates_flags_quickly(paths):
     await asyncio.wait_for(daemon.ready.wait(), 2.0)
     await _send(sock_path, _event())
     await asyncio.sleep(0.1)
+    assert json.loads(state_path.read_text())["sessions"][0]["remote"] is False
+    rc["value"] = True
+    await asyncio.sleep(0.15)
     assert json.loads(state_path.read_text())["sessions"][0]["remote"] is True
+    # A subsequent False from the detector is ignored (network hiccup latch)
     rc["value"] = False
     await asyncio.sleep(0.15)
-    assert json.loads(state_path.read_text())["sessions"][0]["remote"] is False
+    assert json.loads(state_path.read_text())["sessions"][0]["remote"] is True
     await _stop(task)
 
 
