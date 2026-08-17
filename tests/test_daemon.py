@@ -502,3 +502,21 @@ async def test_forward_mode_survives_a_daemon_restart(paths):
     await asyncio.wait_for(daemon.ready.wait(), 2.0)
     assert json.loads(state_path.read_text())["forward_mode"] is True
     await _stop(task)
+
+
+async def test_hook_events_from_non_interactive_pid_are_dropped(paths, monkeypatch):
+    """A `claude -p` one-shot or background agent still fires hooks, but must
+    never show up on the deck — the user cannot interact with it (WB-165)."""
+    from agent_monitor import scan
+    state_path, sock_path = paths
+    monkeypatch.setattr(scan, "is_interactive_pid",
+                        lambda pid: pid != 4242)             # 4242 is background
+    daemon = Daemon(SessionRegistry(), None, state_path, sock_path,
+                    time_fn=lambda: 1.0, pid_alive=lambda pid: True)
+    task = asyncio.create_task(daemon.run())
+    await asyncio.wait_for(daemon.ready.wait(), 2.0)
+    await _send(sock_path, _event(sid="bg", pid=4242))       # dropped
+    await _send(sock_path, _event(sid="fg", pid=999))        # kept
+    sessions = json.loads(state_path.read_text())["sessions"]
+    assert [s["session_id"] for s in sessions] == ["fg"]
+    await _stop(task)

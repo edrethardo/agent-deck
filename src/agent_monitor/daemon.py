@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from . import scan
 from .context import ContextInfo, UsageLimit
 from .render import flash_flags, key_names, led_colors, overlay_info, usage_lines, usage_percents
 from .state import SessionRegistry
@@ -243,6 +244,13 @@ class Daemon:
             pid = int(data.get("pid") or 0)
         except (TypeError, ValueError):
             pid = 0
+        if pid > 1 and not scan.is_interactive_pid(pid):
+            # Background/one-shot sessions (`claude -p`, agents) still fire
+            # hooks — we drop them so the deck only carries interactable
+            # sessions (WB-165).
+            _LOGGER.info("dropping %s from non-interactive pid=%s (session %s)",
+                         event, pid, session_id[:8])
+            return
         if event == "Notification":
             # Notification texts drive the red state and vary by client —
             # keep them observable for diagnosing filter misses.

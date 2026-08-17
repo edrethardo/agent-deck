@@ -87,6 +87,28 @@ def test_probe_script_carries_the_rc_detector_and_one_future_import():
     assert sum(1 for line in lines if line.strip() == lines[0]) == 1
 
 
+def test_probe_skips_non_interactive_sessions(tmp_path):
+    """Background/`claude -p` sessions on the remote must not show up (WB-165)."""
+    import os
+    sessions = tmp_path / ".claude" / "sessions"
+    sessions.mkdir(parents=True)
+    sessions.joinpath(f"{os.getpid()}.json").write_text(json.dumps(
+        {"pid": os.getpid(), "kind": "print", "sessionId": "bg",
+         "cwd": str(tmp_path), "name": "bg"}))
+    proj = tmp_path / ".claude" / "projects" / str(tmp_path).replace("/", "-")
+    proj.mkdir(parents=True)
+    proj.joinpath("bg.jsonl").write_text(json.dumps({
+        "type": "assistant", "isSidechain": False, "timestamp": "2026-08-11T00:00:00Z",
+        "message": {"model": "claude-opus-5", "usage": {"input_tokens": 1,
+                    "cache_read_input_tokens": 10, "cache_creation_input_tokens": 0,
+                    "output_tokens": 1}, "content": [{"type": "text", "text": "hi"}]}}) + "\n")
+    res = subprocess.run(["python3", "-c", remote.probe_script()],
+                         capture_output=True, text=True, timeout=30,
+                         env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"})
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout) == {"sessions": []}
+
+
 def test_probe_reports_remote_control(tmp_path, monkeypatch):
     import os
     # a session file + a live pid (ours), with the RC check stubbed inside the probe

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -78,11 +79,37 @@ def claude_ancestor_pid(start_pid: int) -> int:
     return start_pid
 
 
+def _session_meta_path(pid: int) -> Path:
+    return Path.home() / ".claude" / "sessions" / f"{pid}.json"
+
+
+def is_interactive_pid(pid: int) -> bool:
+    """True unless Claude's per-PID session file reports a non-interactive kind.
+
+    Claude Code writes `~/.claude/sessions/<pid>.json` with a `kind` field —
+    "interactive" for TUI/VS Code sessions, other values for `claude -p` one-
+    shots and background agents (WB-165). We default to True when the file is
+    missing or the field absent: older Claude versions have no such file, and
+    dropping every session we cannot positively classify would erase the
+    deck for anyone on an old build.
+    """
+    if pid <= 1:
+        return True
+    try:
+        meta = json.loads(_session_meta_path(pid).read_text())
+    except (OSError, ValueError):
+        return True
+    kind = meta.get("kind")
+    return kind is None or kind == "interactive"
+
+
 def claude_processes() -> dict[int, str]:
-    """PID -> cwd for top-most running claude processes of this user.
+    """PID -> cwd for top-most INTERACTIVE running claude processes of this user.
 
     A match whose ancestor also matches is dropped (e.g. a `claude -p` child
-    spawned by an interactive session).
+    spawned by an interactive session). Non-interactive top-level processes
+    (background agents, `claude -p` one-shots) are filtered out — the deck
+    only shows sessions the user can act on (WB-165).
     """
     matches: dict[int, str] = {}
     for pid in _iter_pids():
@@ -104,7 +131,7 @@ def claude_processes() -> dict[int, str]:
                 result.pop(pid, None)  # child of another claude — keep the outermost
                 break
             anc = _ppid(anc)
-    return result
+    return {pid: cwd for pid, cwd in result.items() if is_interactive_pid(pid)}
 
 
 

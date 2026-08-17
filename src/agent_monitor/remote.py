@@ -43,6 +43,9 @@ def _probe_main() -> None:
             meta = json.loads(meta_path.read_text())
         except (OSError, ValueError):
             continue
+        kind = meta.get("kind")
+        if kind is not None and kind != "interactive":
+            continue                 # skip background/one-shot sessions (WB-165)
         pid = meta.get("pid")
         if not isinstance(pid, int) or pid <= 1:
             continue
