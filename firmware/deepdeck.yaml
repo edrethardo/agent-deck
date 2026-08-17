@@ -550,8 +550,10 @@ font:
     glyphsets:
       - GF_Latin_Core
   - file: "gfonts://Roboto Mono"
-    id: font24
-    size: 24
+    id: font_menu
+    # 28 is the biggest Roboto Mono size at which "compact" (7 chars, the
+    # longest menu word) fits inside the 128px-wide OLED.
+    size: 28
     glyphsets:
       - GF_Latin_Core
 
@@ -579,23 +581,16 @@ display:
       }
       if (id(menu_slot) >= 0) {
         if ((int32_t) (millis() - id(menu_until)) < 0) {
-          // One entry per screen, printed big — the previous five-line list
-          // ran off the bottom of the 64-row OLED. The cursor semantics are
-          // unchanged (0..4 map to the same daemon actions).
-          std::string header = id(menu_slot) < (int) id(key_names).size() && !id(key_names)[id(menu_slot)].empty()
-              ? id(key_names)[id(menu_slot)]
-              : "key " + to_string(id(menu_slot) + 1);
-          it.print(0, 0, id(font8), header.c_str());
+          // One word per screen, filling the whole OLED — the encoder
+          // rotates between the five entries (WB-163). Cursor semantics
+          // 0..4 unchanged so the daemon action mapping still holds.
           static const char *WORDS[5] = {"restart", "remote", "compact", "hide", "end"};
           const char *word = WORDS[id(menu_cursor)];
           if (id(menu_cursor) == 4 && id(menu_confirm_until) != 0 &&
               (int32_t) (millis() - id(menu_confirm_until)) < 0) {
             word = "end?";      // armed: the '?' is the ask-again cue
           }
-          it.print(64, 34, id(font24), TextAlign::CENTER, word);
-          char footer[16];
-          snprintf(footer, sizeof(footer), "%d/5  turn: next", id(menu_cursor) + 1);
-          it.print(0, 56, id(font8), footer);
+          it.print(64, 32, id(font_menu), TextAlign::CENTER, word);
           return;
         }
         id(menu_slot) = -1;
