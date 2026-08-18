@@ -463,3 +463,53 @@ def test_prose_quoting_the_interrupt_marker_is_not_an_interrupt(tmp_path):
         _text_turn(T0, "When you press Esc the transcript records "
                        "[Request interrupted by user] as a user entry.")])
     assert context.read_context(path, now=NOW_EPOCH).interrupted is False
+
+
+def _end_turn(model="claude-fable-5"):
+    """An assistant reply that closes the turn (nothing pending)."""
+    return {"type": "assistant", "isSidechain": False, "effort": "high", "message": {
+        "model": model, "stop_reason": "end_turn",
+        "usage": {"input_tokens": 1, "cache_read_input_tokens": 10,
+                  "cache_creation_input_tokens": 0, "output_tokens": 3},
+        "content": [{"type": "text", "text": "done."}]}}
+
+
+def test_terminated_true_when_transcript_ends_with_end_turn(tmp_path):
+    """A dispatched run that just wrote its final result must read as idle,
+    otherwise the fresh mtime keeps its key permanently yellow (WB-250)."""
+    path = _write_transcript(tmp_path, "-p", "s", [
+        {"type": "user", "isSidechain": False,
+         "message": {"role": "user", "content": "do it"}},
+        _end_turn(),
+        {"type": "last-prompt"},   # bookkeeping after end_turn is fine
+    ])
+    info = context.read_context(path)
+    assert info.terminated is True
+
+
+def test_terminated_false_while_a_tool_is_still_running(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", _ask(tool="Bash"))
+    assert context.read_context(path).terminated is False
+
+
+def test_terminated_false_when_a_new_user_prompt_arrived(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [
+        _end_turn(),
+        {"type": "user", "isSidechain": False,
+         "message": {"role": "user", "content": "another"}},
+    ])
+    assert context.read_context(path).terminated is False
+
+
+def test_terminated_false_when_the_only_assistant_is_a_limit_notice(tmp_path):
+    path = _write_transcript(tmp_path, "-p", "s", [
+        {"type": "assistant", "isSidechain": False, "message": {
+            "model": "claude-fable-5", "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "cache_read_input_tokens": 10,
+                      "cache_creation_input_tokens": 0, "output_tokens": 1},
+            "content": [{"type": "text", "text":
+                         "Claude usage limit reached. Limit will reset at 4pm."}]}}
+    ])
+    info = context.read_context(path)
+    assert info.blocked is True
+    assert info.terminated is False   # blocked wins: the session is stuck

@@ -483,6 +483,7 @@ def test_remote_status_mapping():
         _rsess(sid="d", cwd="/p/d", age=10.0, question=True),    # asking -> red
         _rsess(sid="e", cwd="/p/e", age=10.0, blocked=True),     # limit -> red
         _rsess(sid="f", cwd="/p/f", age=2.0, interrupted=True),  # Esc -> green
+        _rsess(sid="g", cwd="/p/g", age=2.0, terminated=True),   # end_turn -> green
     ], now=1000.0)
     got = {s.cwd: (s.status, s.finished) for s in reg.sessions()}
     assert got["/p/a"] == (Status.BUSY, False)
@@ -491,6 +492,23 @@ def test_remote_status_mapping():
     assert got["/p/d"][0] is Status.WAITING
     assert got["/p/e"][0] is Status.WAITING
     assert got["/p/f"] == (Status.AVAILABLE, True)
+    assert got["/p/g"] == (Status.AVAILABLE, True)                # WB-250
+
+
+def test_remote_terminated_overrules_the_60s_busy_heuristic():
+    """A dispatched run wrote its final result seconds before exit. The mtime
+    is fresh but the transcript ends with end_turn — the key must not stay
+    permanently yellow after back-to-back Werkbank tickets (WB-250)."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess(age=2.0, terminated=True)], now=1000.0)
+    (s,) = reg.sessions()
+    assert s.status is Status.AVAILABLE and s.finished is True
+    # follow-up tick, still terminated, still fresh mtime — stays green
+    reg.sync_remote("box", [_rsess(age=2.5, terminated=True)], now=1000.5)
+    (s,) = reg.sessions()
+    assert s.status is Status.AVAILABLE
 
 
 def test_remote_sessions_survive_local_pruning():
@@ -622,6 +640,23 @@ def test_a_status_neutral_event_still_unhides():
     # a second Stop changes no status at all, but it IS activity
     assert reg.apply_event("Stop", "a", "/proj/a", 5, None, 200.0) is True
     assert reg.by_id("a").slot == 0
+
+
+def test_terminated_transcript_does_not_flip_available_to_busy():
+    """Fresh mtime + end_turn transcript = idle. Without this the deck would
+    keep re-flipping a just-finished dispatched session to yellow (WB-250)."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)         # green
+    # activity written AFTER the Stop, WITHIN the 30s window — normally that
+    # would trigger the BUSY re-invocation trick; terminated blocks it.
+    reg.update_context({5: _ctx(activity=110.0, terminated=True)}, now=112.0)
+    assert reg.by_id("a").status is Status.AVAILABLE
+    # Same input without terminated -> the old BUSY trick still fires
+    reg.update_context({5: _ctx(activity=115.0, terminated=False)}, now=116.0)
+    assert reg.by_id("a").status is Status.BUSY
 
 
 def test_transcript_activity_newer_than_the_hide_unhides():

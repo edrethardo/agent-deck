@@ -45,6 +45,11 @@ class ContextInfo:
     peer_pid: int = 0       # that peer's pid, resolved via the sessions dir
     interrupted: bool = False  # the user pressed Esc: the turn ended without a
     #                            Stop hook, but the session is idle and theirs
+    terminated: bool = False   # last main-chain assistant turn ended with
+    #                            stop_reason "end_turn" — nothing pending. Used
+    #                            to overrule the 60-second mtime-freshness rule
+    #                            for dispatched runs whose transcript just moved
+    #                            because they wrote their final result (WB-250).
 
 
 # Tools that block on USER input by design — an unresolved call at the tail of
@@ -226,7 +231,7 @@ def read_context(path: Path, large_for: str | None = None,
         last = (tokens, model, str(entry.get("effort") or ""))
     if last is None:
         return None
-    question = blocked = interrupted = False
+    question = blocked = interrupted = terminated = False
     if tail_entry is not None and tail_entry.get("type") == "user":
         interrupted = _is_interrupt(tail_entry)
     if tail_entry is not None and tail_entry.get("type") == "assistant":
@@ -240,6 +245,11 @@ def read_context(path: Path, large_for: str | None = None,
                     and blk.get("name") in BLOCKING_TOOLS:
                 question = True
                 break
+        # "end_turn" is the exact signal: the assistant returned no further
+        # tool_use and Claude Code closed the turn — the session is idle
+        # regardless of how recently its transcript was touched.
+        stop_reason = str((tail_entry.get("message") or {}).get("stop_reason") or "")
+        terminated = stop_reason == "end_turn" and not (question or blocked)
     tokens, model, effort = last
     short = model_short(model)
     large = "[1m]" in model or max_tokens > DEFAULT_WINDOW or (large_for is not None and short == large_for)
@@ -252,6 +262,7 @@ def read_context(path: Path, large_for: str | None = None,
         blocked=blocked,
         peer_name=peer_name,
         interrupted=interrupted,
+        terminated=terminated,
     )
 
 

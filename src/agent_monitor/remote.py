@@ -67,6 +67,7 @@ def _probe_main() -> None:
             "question": info.question,
             "blocked": info.blocked,
             "interrupted": info.interrupted,
+            "terminated": info.terminated,
             "peer_name": info.peer_name,
             # remote-control state has to be read where the sockets are
             "remote": has_remote_control(pid),

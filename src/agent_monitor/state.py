@@ -243,13 +243,17 @@ class SessionRegistry:
                     sess.since = info.activity or (now or sess.since)
                     changed = True
             elif (sess.status is Status.AVAILABLE
+                    and not info.terminated
                     and now is not None
                     and info.activity > sess.since + 2.0
                     and now - info.activity < self.ACTIVITY_WINDOW_S):
                 # Written AFTER the Stop that made it green: an autonomous
                 # re-invocation or a background subagent is working — no
                 # UserPromptSubmit ever fires for those. The next real Stop
-                # turns it back green.
+                # turns it back green. Skipped when the transcript's last
+                # main-chain turn was an end_turn assistant reply — that is
+                # the signal a dispatched run has produced its final result
+                # and is now waiting for the next prompt (WB-250).
                 sess.status = Status.BUSY
                 sess.since = info.activity
                 sess.finished = False
@@ -322,6 +326,10 @@ class SessionRegistry:
                 status, finished = Status.WAITING, False
             elif entry.get("interrupted"):
                 status, finished = Status.AVAILABLE, True
+            elif entry.get("terminated"):
+                # transcript ends with an end_turn assistant reply — the session
+                # is idle no matter how recently the file was touched (WB-250)
+                status, finished = Status.AVAILABLE, age < GREEN_HOLD_S
             elif age < self.REMOTE_BUSY_S:
                 status, finished = Status.BUSY, False
             else:
