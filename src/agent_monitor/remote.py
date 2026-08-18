@@ -43,6 +43,9 @@ def _probe_main() -> None:
             meta = json.loads(meta_path.read_text())
         except (OSError, ValueError):
             continue
+        kind = meta.get("kind")
+        if kind is not None and kind != "interactive":
+            continue                 # skip background/one-shot sessions (WB-165)
         pid = meta.get("pid")
         if not isinstance(pid, int) or pid <= 1:
             continue
@@ -64,11 +67,13 @@ def _probe_main() -> None:
             "question": info.question,
             "blocked": info.blocked,
             "interrupted": info.interrupted,
+            "terminated": info.terminated,
             "peer_name": info.peer_name,
             # remote-control state has to be read where the sockets are
             "remote": has_remote_control(pid),
             # age, not a timestamp: the two machines' clocks need not agree
             "age": max(0.0, now - info.activity) if info.activity else 1e9,
+            "sub_age": max(0.0, now - info.sub_activity) if info.sub_activity else 1e9,
         })
     json.dump({"sessions": out}, sys.stdout)
 

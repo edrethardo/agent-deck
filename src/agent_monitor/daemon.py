@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from . import scan
 from .context import ContextInfo, UsageLimit
 from .render import flash_flags, key_names, led_colors, overlay_info, usage_lines, usage_percents
 from .state import SessionRegistry
@@ -93,6 +94,15 @@ class Daemon:
             if sess.slot == slot:
                 asyncio.get_event_loop().create_task(self._run_action(sess, option))
                 return
+
+    def set_setting(self, name: str, value: bool) -> None:
+        """Adopt a setting the pad reports (it owns them; we follow)."""
+        if name != "forward":
+            _LOGGER.info("ignoring unknown pad setting %r", name)
+            return
+        if self._registry.set_forward_mode(value):
+            _LOGGER.info("forward mode %s", "on" if value else "off")
+        asyncio.get_event_loop().create_task(self._refresh())
 
     async def _focus(self, cwd: str, slot: int | None = None) -> None:
         from .focus import focus_window
@@ -234,6 +244,13 @@ class Daemon:
             pid = int(data.get("pid") or 0)
         except (TypeError, ValueError):
             pid = 0
+        if pid > 1 and not scan.is_interactive_pid(pid):
+            # Background/one-shot sessions (`claude -p`, agents) still fire
+            # hooks — we drop them so the deck only carries interactable
+            # sessions (WB-165).
+            _LOGGER.info("dropping %s from non-interactive pid=%s (session %s)",
+                         event, pid, session_id[:8])
+            return
         if event == "Notification":
             # Notification texts drive the red state and vary by client —
             # keep them observable for diagnosing filter misses.
@@ -267,6 +284,7 @@ class Daemon:
                 "updated": self._time_fn(),
                 "sessions": [s.to_dict() for s in sessions],
                 "usage": [dataclasses.asdict(lim) for lim in self._usage],
+                "forward_mode": self._registry.forward_mode,
             }
             tmp = self._state_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload))

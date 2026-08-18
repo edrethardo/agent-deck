@@ -228,7 +228,38 @@ def test_update_remote_flags_reports_changes():
     assert reg.update_remote_flags(lambda pid: True) is True
     assert reg.by_id("a").remote is True
     assert reg.update_remote_flags(lambda pid: True) is False
-    assert reg.update_remote_flags(lambda pid: False) is True
+
+
+def test_update_remote_flags_latches_true_across_a_network_drop():
+    """A False from the detector never blanks a session already flagged remote.
+
+    The relay socket lingers after `/remote-control off` (cherny confirmed on
+    issue #85304, WB-179), so a False reading almost always means a transient
+    network hiccup — not an actual off-toggle. If we followed it, every
+    previously-blue key would flash to white the moment wifi drops (WB-180)."""
+    reg = SessionRegistry()
+    _start(reg, "a", pid=100)
+    _start(reg, "b", pid=101)
+    reg.update_remote_flags(lambda pid: True)                    # both blue
+    assert reg.by_id("a").remote is True
+    assert reg.by_id("b").remote is True
+    # network drops: every socket disappears at once
+    assert reg.update_remote_flags(lambda pid: False) is False   # nothing changed
+    assert reg.by_id("a").remote is True
+    assert reg.by_id("b").remote is True
+    # network returns
+    assert reg.update_remote_flags(lambda pid: True) is False    # still True
+
+
+def test_sync_remote_latches_remote_true_across_a_probe_hiccup():
+    """A remote box's own network hiccup must not blank its blue keys either."""
+    reg = SessionRegistry()
+    entry_on = {"session_id": "r1", "pid": 3024, "cwd": "/p", "age": 5.0, "remote": True}
+    reg.sync_remote("box", [entry_on], now=100.0)
+    assert reg.by_id("box:r1").remote is True
+    entry_off = dict(entry_on, remote=False)
+    reg.sync_remote("box", [entry_off], now=101.0)
+    assert reg.by_id("box:r1").remote is True                    # still blue
 
 
 def test_scan_rediscovery_reclaims_projects_key():
@@ -452,6 +483,7 @@ def test_remote_status_mapping():
         _rsess(sid="d", cwd="/p/d", age=10.0, question=True),    # asking -> red
         _rsess(sid="e", cwd="/p/e", age=10.0, blocked=True),     # limit -> red
         _rsess(sid="f", cwd="/p/f", age=2.0, interrupted=True),  # Esc -> green
+        _rsess(sid="g", cwd="/p/g", age=2.0, terminated=True),   # end_turn -> green
     ], now=1000.0)
     got = {s.cwd: (s.status, s.finished) for s in reg.sessions()}
     assert got["/p/a"] == (Status.BUSY, False)
@@ -460,6 +492,23 @@ def test_remote_status_mapping():
     assert got["/p/d"][0] is Status.WAITING
     assert got["/p/e"][0] is Status.WAITING
     assert got["/p/f"] == (Status.AVAILABLE, True)
+    assert got["/p/g"] == (Status.AVAILABLE, True)                # WB-250
+
+
+def test_remote_terminated_overrules_the_60s_busy_heuristic():
+    """A dispatched run wrote its final result seconds before exit. The mtime
+    is fresh but the transcript ends with end_turn — the key must not stay
+    permanently yellow after back-to-back Werkbank tickets (WB-250)."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    reg.sync_remote("box", [_rsess(age=2.0, terminated=True)], now=1000.0)
+    (s,) = reg.sessions()
+    assert s.status is Status.AVAILABLE and s.finished is True
+    # follow-up tick, still terminated, still fresh mtime — stays green
+    reg.sync_remote("box", [_rsess(age=2.5, terminated=True)], now=1000.5)
+    (s,) = reg.sessions()
+    assert s.status is Status.AVAILABLE
 
 
 def test_remote_sessions_survive_local_pruning():
@@ -593,6 +642,23 @@ def test_a_status_neutral_event_still_unhides():
     assert reg.by_id("a").slot == 0
 
 
+def test_terminated_transcript_does_not_flip_available_to_busy():
+    """Fresh mtime + end_turn transcript = idle. Without this the deck would
+    keep re-flipping a just-finished dispatched session to yellow (WB-250)."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)         # green
+    # activity written AFTER the Stop, WITHIN the 30s window — normally that
+    # would trigger the BUSY re-invocation trick; terminated blocks it.
+    reg.update_context({5: _ctx(activity=110.0, terminated=True)}, now=112.0)
+    assert reg.by_id("a").status is Status.AVAILABLE
+    # Same input without terminated -> the old BUSY trick still fires
+    reg.update_context({5: _ctx(activity=115.0, terminated=False)}, now=116.0)
+    assert reg.by_id("a").status is Status.BUSY
+
+
 def test_transcript_activity_newer_than_the_hide_unhides():
     reg = SessionRegistry()
     _start(reg, "a", pid=5)
@@ -634,3 +700,233 @@ def test_loading_a_hidden_session_with_a_slot_repairs_it():
         {"session_id": "a", "cwd": "/p", "pid": 5, "status": "available",
          "slot": 0, "since": 1.0, "hidden_at": 50.0}]})
     assert reg.by_id("a").slot is None
+
+
+def _fill_board(reg, status_of=None):
+    """One session per key, each idler than the last: s0 is the longest idle."""
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+        if status_of and i in status_of:
+            reg.apply_event(status_of[i], f"s{i}", f"/proj/s{i}", 100 + i, None, float(i))
+    return reg
+
+
+def test_forward_mode_is_off_by_default_and_round_trips():
+    reg = SessionRegistry()
+    assert reg.forward_mode is False
+    reg.forward_mode = True
+    assert SessionRegistry.from_dict(reg.to_dict()).forward_mode is True
+    assert SessionRegistry.from_dict({"sessions": []}).forward_mode is False
+
+
+def test_full_board_without_forward_mode_leaves_the_newcomer_in_overflow():
+    reg = _fill_board(SessionRegistry())
+    _start(reg, "new", t=99.0, pid=999)
+    assert reg.by_id("new").slot is None
+    assert reg.by_id("s0").slot == 0          # the idlest keeps its key
+
+
+def test_forward_mode_gives_the_longest_idle_key_to_a_working_session():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)       # SessionStart -> AVAILABLE, no displacing
+    assert reg.by_id("new").slot is None
+    # it starts working: now it earns a key
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot == 0         # took the longest-idle session's key
+    assert reg.by_id("s0").slot is None       # which moved to overflow
+
+
+def test_forward_mode_never_displaces_an_active_or_hidden_session():
+    from agent_monitor.model import Status
+
+    # every key busy except s5, which is hidden -> no eligible victim
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+        reg.apply_event("UserPromptSubmit", f"s{i}", f"/proj/s{i}", 100 + i, None, float(i))
+    reg.forward_mode = True
+    reg.hide_slot(5, now=50.0)                # frees key 5...
+    _start(reg, "filler", t=60.0, pid=900)    # ...which this takes
+    reg.apply_event("UserPromptSubmit", "filler", "/proj/filler", 900, None, 61.0)  # ...and gets busy
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot is None      # all keys busy: nobody is displaced
+    assert all(s.status is Status.BUSY for s in reg.sessions() if s.slot is not None)
+
+
+def test_a_blocked_session_also_displaces():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("PermissionRequest", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_the_displaced_session_keeps_its_key_in_memory():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg._last_slot_by_cwd.get("/proj/s0") == 0   # remembered for its return
+
+
+def test_an_overflow_session_takes_a_key_only_when_it_turns_active():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    assert reg.by_id("new").slot is None          # idle: waits
+    reg.apply_event("Stop", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("new").slot is None          # finished/green: still waits
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 101.0)
+    assert reg.by_id("new").slot == 0             # working: claims a key
+
+
+def test_a_scanned_session_is_evicted_before_any_idle_one():
+    """The existing UNKNOWN fallback stays the first resort: a scan-discovered
+    session never had hooks, so it is the cheapest thing on the board to lose."""
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS - 1):
+        _start(reg, f"s{i}", t=float(i), pid=100 + i)
+    reg.add_scanned(500, "/proj/scanned", 50.0)   # takes the last free key
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("proc-500").slot is None     # the scanned one yielded
+    assert reg.by_id("s0").slot == 0              # the idlest kept its key
+
+
+def test_a_freshly_finished_session_is_never_the_victim():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    reg.apply_event("Stop", "s0", "/proj/s0", 100, None, 90.0)   # idlest turns green
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 100.0)
+    assert reg.by_id("s0").slot == 0              # green: `since` is recent
+    assert reg.by_id("s1").slot is None           # the next-idlest yielded instead
+
+
+def test_an_exact_tie_is_broken_deterministically():
+    reg = SessionRegistry()
+    for i in range(MAX_SLOTS):
+        _start(reg, f"s{i}", t=5.0, pid=100 + i)  # every session equally idle
+    reg.forward_mode = True
+    _start(reg, "new", t=5.0, pid=999)
+    reg.apply_event("UserPromptSubmit", "new", "/proj/new", 999, None, 5.0)
+    assert reg.by_id(f"s{MAX_SLOTS - 1}").slot is None   # highest slot yields
+
+
+def test_waking_from_hidden_while_idle_never_displaces_anyone():
+    """Unhiding is not 'needing a key': a status-neutral event brings a hidden
+    session back, but it must wait for a free key like any idle session."""
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    reg.hide_slot(0, now=50.0)                     # frees key 0...
+    _start(reg, "filler", t=60.0, pid=900)         # ...which this idle session takes
+    assert reg.by_id("filler").slot == 0
+    # a second Stop wakes the hidden session without making it active
+    reg.apply_event("Stop", "s0", "/proj/s0", 100, None, 70.0)
+    reg.apply_event("Stop", "s0", "/proj/s0", 100, None, 71.0)
+    assert reg.by_id("s0").hidden_at == 0.0        # it did wake up
+    assert reg.by_id("s0").slot is None            # but took nobody's key
+    assert reg.by_id("filler").slot == 0           # the idle occupant is untouched
+
+
+def test_a_woken_session_that_starts_working_does_displace():
+    """The other half: once it is genuinely working, it earns a key."""
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    reg.hide_slot(0, now=50.0)
+    _start(reg, "filler", t=60.0, pid=900)
+    reg.apply_event("UserPromptSubmit", "s0", "/proj/s0", 100, None, 70.0)
+    assert reg.by_id("s0").slot is not None        # working: displaced the idlest
+
+
+def test_a_blocked_session_in_overflow_claims_a_key_via_the_transcript_path():
+    """question/blocked are the VS Code 'needs you' signals and fire no hook."""
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    assert reg.by_id("new").slot is None
+    reg.update_context({999: _ctx(question=True)}, now=100.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_a_usage_limited_session_in_overflow_also_claims():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.update_context({999: _ctx(blocked=True)}, now=100.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_autonomous_activity_lets_an_overflowed_session_claim():
+    reg = _fill_board(SessionRegistry())
+    reg.forward_mode = True
+    _start(reg, "new", t=99.0, pid=999)
+    reg.apply_event("Stop", "new", "/proj/new", 999, None, 100.0)   # green, no key
+    assert reg.by_id("new").slot is None
+    # a background subagent writes the transcript: no hook fires for this
+    reg.update_context({999: _ctx(activity=200.0)}, now=205.0)
+    assert reg.by_id("new").slot == 0
+
+
+def test_turning_forward_mode_on_rescues_a_waiting_session_at_once():
+    reg = _fill_board(SessionRegistry())
+    _start(reg, "stuck", t=99.0, pid=999)
+    reg.apply_event("PermissionRequest", "stuck", "/proj/stuck", 999, None, 100.0)
+    assert reg.by_id("stuck").slot is None          # forward mode still off
+    assert reg.set_forward_mode(True) is True
+    assert reg.by_id("stuck").slot == 0             # rescued without any new event
+    assert reg.set_forward_mode(True) is False      # idempotent
+
+
+def test_a_stale_busy_clears_when_the_transcript_ended_with_end_turn():
+    """WB-257: UserPromptSubmit set BUSY and no Stop ever arrived."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 100.0)
+    assert reg.by_id("a").status is Status.BUSY
+    # the transcript ended with end_turn a long time ago, nothing pending
+    reg.update_context({5: _ctx(terminated=True, activity=200.0)}, now=100_000.0)
+    s = reg.by_id("a")
+    assert s.status is Status.AVAILABLE
+    assert s.finished is False        # far too old to count as "just finished"
+
+
+def test_a_session_that_just_ended_its_turn_shows_finished():
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 100.0)
+    reg.update_context({5: _ctx(terminated=True, activity=1000.0)}, now=1010.0)
+    s = reg.by_id("a")
+    assert (s.status, s.finished) == (Status.AVAILABLE, True)
+
+
+def test_a_background_subagent_keeps_the_key_yellow_after_end_turn():
+    """Regression guard: e765dc0 made every end_turn look idle, which hid
+    multi-agent runs — the main chain ends its turn while subagents work."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)      # green
+    reg.update_context({5: _ctx(terminated=True, activity=200.0,
+                                sub_activity=200.0)}, now=205.0)
+    assert reg.by_id("a").status is Status.BUSY
+
+
+def test_a_dispatched_run_that_just_wrote_its_result_stays_green():
+    """WB-250's case: a FRESH MAIN write plus end_turn means idle, not busy."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)
+    reg.update_context({5: _ctx(terminated=True, activity=200.0,
+                                sub_activity=0.0)}, now=205.0)
+    assert reg.by_id("a").status is Status.AVAILABLE

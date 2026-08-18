@@ -70,6 +70,10 @@ def render_status(state: dict | None, now: float, daemon_up: bool,
                     txt += f" (resets {escape(str(lim['resets_at']))})"
                 parts.append(txt)
         console.print("Usage: " + "  ·  ".join(parts))
+    if (state or {}).get("forward_mode"):
+        # a setting that silently rearranges keys must not be invisible
+        console.print("[cyan]forward mode: on[/cyan] — a working session takes "
+                      "the longest-idle key when the board is full")
     sessions = (state or {}).get("sessions", [])
     if not sessions:
         console.print("No active sessions.")

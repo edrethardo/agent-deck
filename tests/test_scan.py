@@ -47,7 +47,46 @@ def test_scan_keeps_topmost_match(monkeypatch):
     monkeypatch.setattr(scan, "_cmdline", lambda p: cmds.get(p, []))
     monkeypatch.setattr(scan, "_ppid", lambda p: parents.get(p, 0))
     monkeypatch.setattr(scan, "_cwd", lambda p: f"/proj/{p}")
+    monkeypatch.setattr(scan, "is_interactive_pid", lambda p: True)
     assert scan.claude_processes() == {100: "/proj/100"}
+
+
+def test_is_interactive_pid_defaults_true_when_meta_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert scan.is_interactive_pid(4242) is True             # no file: assume yes
+    assert scan.is_interactive_pid(0) is True                # unknown pid
+    assert scan.is_interactive_pid(1) is True                # init: not a session
+
+
+def test_is_interactive_pid_reads_the_kind_field(tmp_path, monkeypatch):
+    import json as _json
+    monkeypatch.setenv("HOME", str(tmp_path))
+    sessions = tmp_path / ".claude" / "sessions"
+    sessions.mkdir(parents=True)
+    sessions.joinpath("100.json").write_text(_json.dumps({"kind": "interactive"}))
+    sessions.joinpath("200.json").write_text(_json.dumps({"kind": "print"}))
+    sessions.joinpath("300.json").write_text(_json.dumps({"entrypoint": "x"}))  # no kind
+    sessions.joinpath("400.json").write_text("not json")
+    assert scan.is_interactive_pid(100) is True
+    assert scan.is_interactive_pid(200) is False
+    assert scan.is_interactive_pid(300) is True              # missing kind: assume yes
+    assert scan.is_interactive_pid(400) is True              # malformed: assume yes
+
+
+def test_scan_drops_non_interactive_top_level_processes(tmp_path, monkeypatch):
+    import json as _json
+    monkeypatch.setenv("HOME", str(tmp_path))
+    sessions = tmp_path / ".claude" / "sessions"
+    sessions.mkdir(parents=True)
+    sessions.joinpath("100.json").write_text(_json.dumps({"kind": "interactive"}))
+    sessions.joinpath("200.json").write_text(_json.dumps({"kind": "print"}))
+    cmds = {100: ["/opt/claude/claude"], 200: ["/opt/claude/claude", "-p"]}
+    monkeypatch.setattr(scan, "_iter_pids", lambda: [100, 200])
+    monkeypatch.setattr(scan, "_same_uid", lambda p: True)
+    monkeypatch.setattr(scan, "_cmdline", lambda p: cmds.get(p, []))
+    monkeypatch.setattr(scan, "_ppid", lambda p: 1)
+    monkeypatch.setattr(scan, "_cwd", lambda p: f"/proj/{p}")
+    assert scan.claude_processes() == {100: "/proj/100"}     # 200 filtered
 
 
 V6_HEADER = "  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"

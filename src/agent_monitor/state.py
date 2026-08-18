@@ -18,6 +18,9 @@ class SessionRegistry:
         # Which key each project last held — lets a restarted session reclaim
         # its key even when lower-numbered keys are free.
         self._last_slot_by_cwd: dict[str, int] = {}
+        # When the board is full, let a working/blocked session take the key of
+        # the session idle longest. Owned by the pad; see docs/superpowers/specs.
+        self.forward_mode = False
 
     def sessions(self) -> list[Session]:
         """Sorted by slot, overflow (None) last."""
@@ -60,7 +63,11 @@ class SessionRegistry:
                     source = "memory"
                     self._last_slot_by_cwd.pop(cwd, None)
             if slot is None:
-                slot = self._claim_slot_for_real()
+                # Forward mode may only evict on behalf of a session that is
+                # itself active — a brand-new AVAILABLE session must wait its
+                # turn in overflow like anyone else.
+                slot = self._claim_slot_for_real(
+                    active=status in (Status.BUSY, Status.WAITING))
             _LOGGER.info("session %s created pid=%s slot=%s (%s)",
                          session_id[:8], pid, slot, source)
             self._sessions[session_id] = Session(
@@ -91,6 +98,7 @@ class SessionRegistry:
         sess.status = new
         sess.finished = finished
         sess.since = now
+        self._claim_if_active(sess)
         return True
 
     def decay_finished(self, now: float, hold: float = GREEN_HOLD_S) -> bool:
@@ -178,6 +186,9 @@ class SessionRegistry:
             # Miss: the remembered entry deliberately stays, matching the
             # pop-only-on-hit convention used elsewhere in this file. It now
             # serves a FUTURE session of this project, not this one.
+            # No displacement here: waking up is not the same as needing a key.
+            # If the event that woke it also makes it BUSY/WAITING, apply_event's
+            # tail claims one properly, displacing if forward mode allows.
             sess.slot = self._claim_slot_for_real()
         _LOGGER.info("unhid session %s -> slot %s", sess.session_id[:8], sess.slot)
         return True
@@ -185,15 +196,18 @@ class SessionRegistry:
     def update_remote_flags(self, has_rc: Callable[[int], bool]) -> bool:
         """Refresh each session's remote-control flag. True if any changed.
 
-        Sessions with a manual (pad-toggled) flag are skipped: the relay
-        connection lingers after an in-process off-toggle, so detection
-        would wrongly overwrite the known state."""
+        True latches. A False reading is treated as no-signal, not an off:
+        the relay socket lingers after `/remote-control off` (cherny confirmed
+        on issue #85304, WB-179), so a False almost always means the process
+        lost its Anthropic connection — a wifi hiccup would otherwise blank
+        every previously-remote key at once (WB-180). Sessions with the
+        pad-pinned flag (`rc_manual`) are skipped entirely; that is the only
+        channel that can turn remote OFF."""
         changed = False
         for sess in self._sessions.values():
             if sess.pid > 1 and not sess.rc_manual:
-                flag = has_rc(sess.pid)
-                if flag != sess.remote:
-                    sess.remote = flag
+                if has_rc(sess.pid) and not sess.remote:
+                    sess.remote = True
                     changed = True
         return changed
 
@@ -217,6 +231,7 @@ class SessionRegistry:
                 (sess.context_pct, sess.model, sess.effort,
                  sess.question, sess.blocked) = new
                 changed = True
+            changed |= self._claim_if_active(sess)
             if info.interrupted:
                 # Esc ends the turn without a Stop hook. The session is idle
                 # and the user is right there — green, like a finished task.
@@ -227,18 +242,44 @@ class SessionRegistry:
                     sess.finished = True
                     sess.since = info.activity or (now or sess.since)
                     changed = True
+            elif (now is not None
+                    and info.sub_activity > 0.0
+                    and now - info.sub_activity < self.ACTIVITY_WINDOW_S
+                    and sess.status is not Status.WAITING):
+                # A background subagent is writing right now. The main chain's
+                # own turn may well have ended (`terminated`) — that says
+                # nothing about the work it dispatched, which is exactly the
+                # multi-agent case this display exists for.
+                if sess.status is not Status.BUSY:
+                    sess.status = Status.BUSY
+                    sess.since = info.sub_activity
+                    sess.finished = False
+                    changed = True
+                    self._claim_if_active(sess)
+            elif info.terminated and sess.status is Status.BUSY:
+                # The transcript's last main-chain turn ended with end_turn and
+                # nothing is pending: the session is idle however fresh the file
+                # looks. Clears a BUSY left behind by a UserPromptSubmit whose
+                # Stop hook never arrived (WB-257), and the false BUSY a
+                # dispatched run's final write used to cause (WB-250).
+                sess.status = Status.AVAILABLE
+                sess.finished = (now is not None
+                                 and now - info.activity < GREEN_HOLD_S)
+                sess.since = info.activity or (now or sess.since)
+                changed = True
             elif (sess.status is Status.AVAILABLE
+                    and not info.terminated
                     and now is not None
                     and info.activity > sess.since + 2.0
                     and now - info.activity < self.ACTIVITY_WINDOW_S):
                 # Written AFTER the Stop that made it green: an autonomous
-                # re-invocation or a background subagent is working — no
-                # UserPromptSubmit ever fires for those. The next real Stop
-                # turns it back green.
+                # re-invocation with no subagent file of its own — no
+                # UserPromptSubmit fires for those either.
                 sess.status = Status.BUSY
                 sess.since = info.activity
                 sess.finished = False
                 changed = True
+                self._claim_if_active(sess)
         return self._update_peer_waits(infos) or changed
 
     def _update_peer_waits(self, infos: dict[int, "ContextInfo | None"]) -> bool:
@@ -306,6 +347,12 @@ class SessionRegistry:
                 status, finished = Status.WAITING, False
             elif entry.get("interrupted"):
                 status, finished = Status.AVAILABLE, True
+            elif float(entry.get("sub_age", 1e9)) < self.REMOTE_BUSY_S:
+                status, finished = Status.BUSY, False   # a subagent is working
+            elif entry.get("terminated"):
+                # transcript ends with an end_turn assistant reply — the session
+                # is idle no matter how recently the file was touched (WB-250)
+                status, finished = Status.AVAILABLE, age < GREEN_HOLD_S
             elif age < self.REMOTE_BUSY_S:
                 status, finished = Status.BUSY, False
             else:
@@ -318,7 +365,8 @@ class SessionRegistry:
                     slot = preferred
                     self._last_slot_by_cwd.pop(key, None)
                 else:
-                    slot = self._claim_slot_for_real()
+                    slot = self._claim_slot_for_real(
+                        active=status in (Status.BUSY, Status.WAITING))
                 _LOGGER.info("remote session %s on %s slot=%s", sid[:24], host, slot)
                 sess = Session(session_id=sid, cwd=cwd, pid=0, status=status,
                                slot=slot, since=now, host=host)
@@ -335,16 +383,17 @@ class SessionRegistry:
                 (sess.status, sess.finished, sess.model, sess.effort,
                  sess.context_pct, sess.question, sess.blocked) = new
                 changed = True
+                changed |= self._claim_if_active(sess)
             sess.cwd = sess.cwd or cwd
             if sess.hidden_at and (now - age) > sess.hidden_at:
                 self.unhide(sess)
                 changed = True
             if not sess.rc_manual:
-                # the probe read this off the remote's own sockets; a pad
-                # toggle still wins, exactly as for local sessions
-                flag = bool(entry.get("remote"))
-                if sess.remote != flag:
-                    sess.remote = flag
+                # Same true-latch rule as update_remote_flags: the probe reads
+                # the remote box's sockets, so a network hiccup THERE would
+                # otherwise blank the key here. Only True flips (WB-180).
+                if bool(entry.get("remote")) and not sess.remote:
+                    sess.remote = True
                     changed = True
         for sid in [s for s, sess in self._sessions.items()
                     if sess.host == host and s not in seen]:
@@ -353,17 +402,78 @@ class SessionRegistry:
             changed = True
         return self._promote_overflow() or changed
 
-    def _claim_slot_for_real(self) -> int | None:
-        """Free slot, or evict the newest scanned (UNKNOWN) session to overflow."""
+    def _claim_slot_for_real(self, active: bool = False) -> int | None:
+        """Free slot, or evict the newest scanned (UNKNOWN) session to overflow.
+
+        With forward mode on, a full board additionally yields the key of the
+        session idle longest — see `_displace_longest_idle`. `active` gates
+        only that last resort and defaults to False (fail safe): a caller
+        must opt in explicitly, and only on behalf of a session that is
+        itself BUSY/WAITING — waking up or merely being created must never
+        jump the overflow queue."""
         slot = self._free_slot()
         if slot is not None:
             return slot
         unknowns = [s for s in self._sessions.values()
                     if s.status is Status.UNKNOWN and s.slot is not None]
-        if not unknowns:
+        if unknowns:
+            victim = max(unknowns, key=lambda s: s.since)
+            slot, victim.slot = victim.slot, None
+            return slot
+        return self._displace_longest_idle() if active else None
+
+    def set_forward_mode(self, value: bool) -> bool:
+        """Toggle forward mode. True if the display changed.
+
+        Switching it ON re-evaluates the board immediately: sessions already
+        waiting in overflow are what the user is trying to rescue."""
+        if self.forward_mode == value:
+            return False
+        self.forward_mode = value
+        changed = True
+        if value:
+            # oldest first, so the longest-waiting session is served first
+            for sess in sorted(self._sessions.values(), key=lambda s: s.since):
+                self._claim_if_active(sess)
+        return changed
+
+    def _claim_if_active(self, sess: Session) -> bool:
+        """Give an overflowed session a key once it genuinely needs one.
+
+        `question` and `blocked` count as needing one even when `status` does
+        not say so: in VS Code no hook fires for a permission prompt, and both
+        render red — exactly the states forward mode exists to surface."""
+        if sess.slot is not None or sess.hidden_at:
+            return False
+        if not (sess.status in (Status.BUSY, Status.WAITING) or sess.question or sess.blocked):
+            return False
+        slot = self._claim_slot_for_real(active=True)
+        if slot is None:
+            return False
+        sess.slot = slot
+        return True
+
+    def _displace_longest_idle(self) -> int | None:
+        """Free the key of the longest-idle session, or None if there is none.
+
+        Only plain idle sessions are eligible: a BUSY or WAITING one is doing
+        or needing something, and a hidden one holds no key anyway. A green
+        (recently finished) session is protected in practice, because `since`
+        is recent by construction — it is chosen only when every keyed session
+        is green and somebody has to yield."""
+        if not self.forward_mode:
             return None
-        victim = max(unknowns, key=lambda s: s.since)
+        idle = [s for s in self._sessions.values()
+                if s.slot is not None and s.status is Status.AVAILABLE]
+        if not idle:
+            return None
+        # oldest `since` wins; the higher slot breaks an exact tie so the
+        # choice never depends on dict iteration order
+        victim = min(idle, key=lambda s: (s.since, -s.slot))
+        self._remember_slot(victim)          # it comes back to this key
         slot, victim.slot = victim.slot, None
+        _LOGGER.info("forward mode: session %s yields slot %s (idle longest)",
+                     victim.session_id[:8], slot)
         return slot
 
     def _free_slot(self) -> int | None:
@@ -385,7 +495,8 @@ class SessionRegistry:
         return changed
 
     def to_dict(self) -> dict:
-        return {"sessions": [s.to_dict() for s in self.sessions()]}
+        return {"sessions": [s.to_dict() for s in self.sessions()],
+                "forward_mode": self.forward_mode}
 
     @classmethod
     def from_dict(cls, data: dict) -> "SessionRegistry":
@@ -397,6 +508,7 @@ class SessionRegistry:
             except (KeyError, ValueError, TypeError):
                 continue
             reg._sessions[sess.session_id] = sess
+        reg.forward_mode = bool(data.get("forward_mode", False))
         reg._normalize_slots()
         return reg
 

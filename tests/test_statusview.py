@@ -169,3 +169,12 @@ def test_hidden_session_is_listed_and_marked():
     out = render_status(state, now=100.0, daemon_up=True, width=140)
     assert "hidden" in out
     assert "x" in out          # still listed: the CLI is the complete view
+
+
+def test_forward_mode_marker_appears_only_when_enabled():
+    on = {"sessions": [{"session_id": "a", "cwd": "/p/x", "pid": 1,
+                        "status": "busy", "slot": 0, "since": 40.0}],
+          "forward_mode": True}
+    assert "forward mode: on" in render_status(on, now=100.0, daemon_up=True, width=140)
+    off = dict(on, forward_mode=False)
+    assert "forward mode" not in render_status(off, now=100.0, daemon_up=True, width=140)
