@@ -73,6 +73,7 @@ def _probe_main() -> None:
             "remote": has_remote_control(pid),
             # age, not a timestamp: the two machines' clocks need not agree
             "age": max(0.0, now - info.activity) if info.activity else 1e9,
+            "sub_age": max(0.0, now - info.sub_activity) if info.sub_activity else 1e9,
         })
     json.dump({"sessions": out}, sys.stdout)
 

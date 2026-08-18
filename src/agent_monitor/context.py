@@ -50,6 +50,9 @@ class ContextInfo:
     #                            to overrule the 60-second mtime-freshness rule
     #                            for dispatched runs whose transcript just moved
     #                            because they wrote their final result (WB-250).
+    sub_activity: float = 0.0  # newest write by a background subagent only —
+    #                            work in flight even when the main chain's own
+    #                            turn has already ended (see `terminated`)
 
 
 # Tools that block on USER input by design — an unresolved call at the tail of
@@ -273,6 +276,12 @@ def session_activity(path: Path) -> float:
         latest = path.stat().st_mtime
     except OSError:
         return 0.0
+    return max(latest, subagent_activity(path))
+
+
+def subagent_activity(path: Path) -> float:
+    """Newest write by this session's background subagents, 0.0 if none."""
+    latest = 0.0
     for sub in (path.parent / path.stem / "subagents").glob("agent-*.jsonl"):
         try:
             latest = max(latest, sub.stat().st_mtime)
@@ -303,6 +312,7 @@ def session_context(pid: int, claude_dir: Path | None = None,
         else:
             peer_pid = session_names(claude_dir).get(peer_name, 0)
     return dataclasses.replace(info, activity=session_activity(path),
+                               sub_activity=subagent_activity(path),
                                peer_name=peer_name, peer_pid=peer_pid)
 
 

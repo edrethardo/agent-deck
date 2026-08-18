@@ -242,18 +242,39 @@ class SessionRegistry:
                     sess.finished = True
                     sess.since = info.activity or (now or sess.since)
                     changed = True
+            elif (now is not None
+                    and info.sub_activity > 0.0
+                    and now - info.sub_activity < self.ACTIVITY_WINDOW_S
+                    and sess.status is not Status.WAITING):
+                # A background subagent is writing right now. The main chain's
+                # own turn may well have ended (`terminated`) — that says
+                # nothing about the work it dispatched, which is exactly the
+                # multi-agent case this display exists for.
+                if sess.status is not Status.BUSY:
+                    sess.status = Status.BUSY
+                    sess.since = info.sub_activity
+                    sess.finished = False
+                    changed = True
+                    self._claim_if_active(sess)
+            elif info.terminated and sess.status is Status.BUSY:
+                # The transcript's last main-chain turn ended with end_turn and
+                # nothing is pending: the session is idle however fresh the file
+                # looks. Clears a BUSY left behind by a UserPromptSubmit whose
+                # Stop hook never arrived (WB-257), and the false BUSY a
+                # dispatched run's final write used to cause (WB-250).
+                sess.status = Status.AVAILABLE
+                sess.finished = (now is not None
+                                 and now - info.activity < GREEN_HOLD_S)
+                sess.since = info.activity or (now or sess.since)
+                changed = True
             elif (sess.status is Status.AVAILABLE
                     and not info.terminated
                     and now is not None
                     and info.activity > sess.since + 2.0
                     and now - info.activity < self.ACTIVITY_WINDOW_S):
                 # Written AFTER the Stop that made it green: an autonomous
-                # re-invocation or a background subagent is working — no
-                # UserPromptSubmit ever fires for those. The next real Stop
-                # turns it back green. Skipped when the transcript's last
-                # main-chain turn was an end_turn assistant reply — that is
-                # the signal a dispatched run has produced its final result
-                # and is now waiting for the next prompt (WB-250).
+                # re-invocation with no subagent file of its own — no
+                # UserPromptSubmit fires for those either.
                 sess.status = Status.BUSY
                 sess.since = info.activity
                 sess.finished = False
@@ -326,6 +347,8 @@ class SessionRegistry:
                 status, finished = Status.WAITING, False
             elif entry.get("interrupted"):
                 status, finished = Status.AVAILABLE, True
+            elif float(entry.get("sub_age", 1e9)) < self.REMOTE_BUSY_S:
+                status, finished = Status.BUSY, False   # a subagent is working
             elif entry.get("terminated"):
                 # transcript ends with an end_turn assistant reply — the session
                 # is idle no matter how recently the file was touched (WB-250)

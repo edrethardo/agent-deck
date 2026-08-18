@@ -879,3 +879,54 @@ def test_turning_forward_mode_on_rescues_a_waiting_session_at_once():
     assert reg.set_forward_mode(True) is True
     assert reg.by_id("stuck").slot == 0             # rescued without any new event
     assert reg.set_forward_mode(True) is False      # idempotent
+
+
+def test_a_stale_busy_clears_when_the_transcript_ended_with_end_turn():
+    """WB-257: UserPromptSubmit set BUSY and no Stop ever arrived."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 100.0)
+    assert reg.by_id("a").status is Status.BUSY
+    # the transcript ended with end_turn a long time ago, nothing pending
+    reg.update_context({5: _ctx(terminated=True, activity=200.0)}, now=100_000.0)
+    s = reg.by_id("a")
+    assert s.status is Status.AVAILABLE
+    assert s.finished is False        # far too old to count as "just finished"
+
+
+def test_a_session_that_just_ended_its_turn_shows_finished():
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("UserPromptSubmit", "a", "/proj/a", 5, None, 100.0)
+    reg.update_context({5: _ctx(terminated=True, activity=1000.0)}, now=1010.0)
+    s = reg.by_id("a")
+    assert (s.status, s.finished) == (Status.AVAILABLE, True)
+
+
+def test_a_background_subagent_keeps_the_key_yellow_after_end_turn():
+    """Regression guard: e765dc0 made every end_turn look idle, which hid
+    multi-agent runs — the main chain ends its turn while subagents work."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)      # green
+    reg.update_context({5: _ctx(terminated=True, activity=200.0,
+                                sub_activity=200.0)}, now=205.0)
+    assert reg.by_id("a").status is Status.BUSY
+
+
+def test_a_dispatched_run_that_just_wrote_its_result_stays_green():
+    """WB-250's case: a FRESH MAIN write plus end_turn means idle, not busy."""
+    from agent_monitor.model import Status
+
+    reg = SessionRegistry()
+    _start(reg, "a", pid=5)
+    reg.apply_event("Stop", "a", "/proj/a", 5, None, 100.0)
+    reg.update_context({5: _ctx(terminated=True, activity=200.0,
+                                sub_activity=0.0)}, now=205.0)
+    assert reg.by_id("a").status is Status.AVAILABLE

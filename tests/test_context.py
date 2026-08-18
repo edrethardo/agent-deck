@@ -513,3 +513,18 @@ def test_terminated_false_when_the_only_assistant_is_a_limit_notice(tmp_path):
     info = context.read_context(path)
     assert info.blocked is True
     assert info.terminated is False   # blocked wins: the session is stuck
+
+
+def test_subagent_activity_is_reported_separately(tmp_path):
+    import os
+    _write_session(tmp_path, 7, "sid", "/home/x/p")
+    path = _write_transcript(tmp_path, "-home-x-p", "sid", [_assistant(1, 10, 0)])
+    os.utime(path, (1000.0, 1000.0))
+    assert context.subagent_activity(path) == 0.0        # no subagents yet
+    sub = path.parent / "sid" / "subagents"
+    sub.mkdir(parents=True)
+    agent = sub / "agent-abc.jsonl"
+    agent.write_text("{}\n")
+    os.utime(agent, (2000.0, 2000.0))
+    assert context.subagent_activity(path) == 2000.0
+    assert context.session_activity(path) == 2000.0      # unchanged: the max
